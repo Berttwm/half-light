@@ -2,6 +2,8 @@ def compose(photos, cfg, overrides):
     photos = [p for p in photos if not overrides.get(p["id"], {}).get("skip")]
     by_new = sorted(photos, key=lambda p: (p["date"], p["frame"]), reverse=True)
     reel = by_new[: cfg["reel_size"]]
+    if not reel:
+        return {"reel": [], "sheet": []}
     hero = reel[0]
     rest = [p for p in reel[1:]]
     closer = min(rest, key=lambda p: (p["lum"], p["frame"])) if rest else None

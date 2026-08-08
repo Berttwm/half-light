@@ -209,6 +209,14 @@ def test_compose_rules():
     assert all("DSCF0006" not in s["ids"] for s in out2["reel"])
     print("ok test_compose_rules")
 
+def test_compose_empty_inputs():
+    from pipeline import compose
+    assert compose.compose([], {"reel_size": 14}, {}) == {"reel": [], "sheet": []}
+    photos = [_mk(1, "2026.05.01", 3, 2, 0, .3, .10)]
+    out = compose.compose(photos, {"reel_size": 14}, {"DSCF0001": {"skip": True}})
+    assert out == {"reel": [], "sheet": []}
+    print("ok test_compose_empty_inputs")
+
 def main():
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):
