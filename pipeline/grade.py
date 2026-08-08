@@ -10,13 +10,19 @@ def decode(entry):
             raise ValueError("RAF has no embedded JPEG: " + entry["path"])
         img = Image.open(io.BytesIO(thumb.data))
         img.load()
-        date = _raf_date(entry["path"])
-        img = _raf_transpose(img, entry["path"])
     else:
         img = Image.open(entry["path"])
-        exif = img.getexif()
-        date = _fmt_date(exif.get(36867) or exif.get(306))
-        img = ImageOps.exif_transpose(img)
+
+    # Extract EXIF and date from embedded image (JPG or embedded JPEG in RAF)
+    exif = img.getexif()
+    date = _fmt_date(exif.get(36867) or exif.get(306))
+
+    # Fall back to RAF exifread only if embedded EXIF lacks date
+    if not date and entry["ext"] == ".RAF":
+        date = _raf_date(entry["path"])
+
+    img = ImageOps.exif_transpose(img)
+
     return img.convert("RGB"), {"date": date, "frame": entry["stem"].replace("DSCF", "")}
 
 def _fmt_date(v):
