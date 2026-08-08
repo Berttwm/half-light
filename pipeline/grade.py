@@ -1,5 +1,6 @@
 import io
 import math
+import os
 import numpy as np
 from PIL import Image, ImageOps, ImageFilter
 
@@ -153,3 +154,32 @@ def finish(img, fcfg, seed):
     amp = (fcfg["grain_base"] / 255.0) * (0.35 + 0.65 * np.sin(np.pi * np.clip(L, 0, 1)) ** 0.9)
     a += (noise * amp)[..., None]                                                # luma-only grain, dead last
     return Image.fromarray((np.clip(a, 0, 1) * 255).astype(np.uint8))
+
+def _atomic_save(img, path, **kw):
+    tmp = path + ".tmp"
+    img.save(tmp, **kw)
+    os.replace(tmp, path)
+    from PIL import Image as PILImage
+    PILImage.open(path).verify()
+
+def save_outputs(img, stem, photos_dir, fcfg):
+    from PIL import Image as PILImage, ImageFilter as IF
+    paths = {}
+    for sub in ("full", "thumb", "latent"):
+        os.makedirs(os.path.join(photos_dir, sub), exist_ok=True)
+    full_p = os.path.join(photos_dir, "full", stem + ".webp")
+    _atomic_save(img, full_p, format="WEBP", quality=fcfg["webp_q"], method=6)
+    thumb = img.copy()
+    thumb.thumbnail((fcfg["thumb_edge"],) * 2, PILImage.LANCZOS)
+    _atomic_save(thumb, os.path.join(photos_dir, "thumb", stem + ".webp"),
+                 format="WEBP", quality=fcfg["webp_q"], method=6)
+    latent = img.copy()
+    latent.thumbnail((fcfg["latent_edge"],) * 2, PILImage.LANCZOS)
+    latent = latent.filter(IF.GaussianBlur(2))
+    _atomic_save(latent, os.path.join(photos_dir, "latent", stem + ".webp"),
+                 format="WEBP", quality=60, method=6)
+    base = os.path.basename(photos_dir)
+    for sub in ("full", "thumb", "latent"):
+        paths[sub] = "%s/%s/%s.webp" % (base, sub, stem)
+    paths["w"], paths["h"] = img.size
+    return paths

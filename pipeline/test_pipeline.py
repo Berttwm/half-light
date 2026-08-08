@@ -155,6 +155,31 @@ def test_finish_grain_and_size():
     assert np.array_equal(np.asarray(out), np.asarray(out2))    # deterministic per seed
     print("ok test_finish_grain_and_size")
 
+def test_save_outputs_atomic_and_verified():
+    from PIL import Image
+    from pipeline import grade
+    fcfg = {"webp_q": 85, "thumb_edge": 256, "latent_edge": 64}
+    with tempfile.TemporaryDirectory() as d:
+        img = Image.effect_noise((800, 533), 60).convert("RGB")   # noisy = compressible but nonempty
+        out = grade.save_outputs(img, "DSCF0018", d, fcfg)
+        for key in ("full", "thumb", "latent"):
+            p = os.path.join(d, *out[key].split("/")[1:])
+            assert os.path.exists(p), p
+            Image.open(p).verify()
+        assert out["w"] == 800 and out["h"] == 533
+        assert not any(f.endswith(".tmp") for _, _, fs in os.walk(d) for f in fs)
+    print("ok test_save_outputs_atomic_and_verified")
+
+def test_analyze_bands():
+    from PIL import Image
+    from pipeline import analyze
+    warm = analyze.analyze(Image.new("RGB", (64, 64), (200, 120, 60)))
+    cool = analyze.analyze(Image.new("RGB", (64, 64), (60, 110, 200)))
+    green = analyze.analyze(Image.new("RGB", (64, 64), (70, 180, 80)))
+    assert warm["band"] == 0 and cool["band"] == 2 and green["band"] == 1
+    assert warm["tint"].startswith("#") and 0 <= warm["lum"] <= 1
+    print("ok test_analyze_bands")
+
 def main():
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):
