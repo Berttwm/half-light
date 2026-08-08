@@ -108,5 +108,9 @@ def exposure_lift(arr, ecfg):
     Ls = np.power(np.maximum(L, 1e-6), p)
     scale = Ls / np.maximum(L, 1e-6)
     maxc = arr.max(axis=-1)
-    scale = np.minimum(scale, 1.0 / np.maximum(maxc, 1e-6))          # per-pixel: no channel above 1
+    scale = np.minimum(scale, 2.5)                    # global cap: ~1.3 stops max anywhere
+    m = maxc * scale
+    soft = 0.9 + 0.08 * np.tanh((m - 0.9) / 0.08)     # smooth shoulder, asymptote 0.98 — filmic, never reaches the ceiling
+    scale = np.where(m > 0.9, soft / np.maximum(maxc, 1e-6), scale)
+    scale = np.maximum(scale, 1.0)                    # lift-only: never darken a pixel
     return np.clip(arr * scale[..., None], 0, 1), float(p)

@@ -101,8 +101,19 @@ def test_exposure_lift_underexposed():
     assert float(np.median(L)) > 0.24                                          # visibly lifted
     assert gamma >= 0.60 - 1e-9                                                # clamped lift
     after_clip = float((out.max(axis=-1) >= 0.999).mean())
-    assert after_clip <= before_clip + 3e-3                                    # protect highlights, allow safe scaling
+    assert after_clip <= before_clip + 1e-4                                    # cannot create clipping
     print("ok test_exposure_lift_underexposed")
+
+def test_exposure_lift_saturated_no_pileup():
+    import numpy as np
+    from pipeline import grade
+    arr = np.full((40, 40, 3), 0.12, np.float32)
+    arr[:, :, 2] = 0.5                                 # saturated blue: maxc 0.5, luminance ~0.07
+    ecfg = {"target_median": 0.42, "gamma_min": 0.60, "dark_skip": 0.02, "dark_soft": 0.08}
+    out, gamma = grade.exposure_lift(arr, ecfg)
+    assert float(out[..., 2].max()) <= 0.985           # soft shoulder: never slams the ceiling
+    assert float(out[..., 2].min()) >= 0.5 - 1e-6      # lift-only: blue channel not darkened
+    print("ok test_exposure_lift_saturated_no_pileup")
 
 def test_exposure_lift_dark_scene_skipped():
     import numpy as np
