@@ -157,10 +157,14 @@ def finish(img, fcfg, seed):
 
 def _atomic_save(img, path, **kw):
     tmp = path + ".tmp"
-    img.save(tmp, **kw)
+    try:
+        img.save(tmp, **kw)
+        Image.open(tmp).verify()
+    except Exception:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
     os.replace(tmp, path)
-    from PIL import Image as PILImage
-    PILImage.open(path).verify()
 
 def save_outputs(img, stem, photos_dir, fcfg):
     from PIL import Image as PILImage, ImageFilter as IF
