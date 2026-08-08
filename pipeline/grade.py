@@ -65,7 +65,8 @@ def straighten(img, rcfg):
     cum = np.cumsum(wts)
     med = float(angs[np.searchsorted(cum, cum[-1] / 2)])   # length-weighted median
     inl = np.abs(angs - med) <= 0.5
-    if wts[inl].sum() < 0.5 * wts.sum():                   # consensus gate: >= 50% inliers
+    ABS_FLOOR = 0.6 * sw
+    if wts[inl].sum() < max(0.5 * wts.sum(), ABS_FLOOR):   # hybrid gate: relative + absolute floor
         return img, 0.0
     spread = math.sqrt(float(np.average((angs[inl] - med) ** 2, weights=wts[inl])))
     if spread > 0.7 or abs(med) < rcfg["min_angle"] or abs(med) > rcfg["max_angle"]:
@@ -75,7 +76,7 @@ def straighten(img, rcfg):
     wr, hr = (w * ca - h * sa) / c2, (h * ca - w * sa) / c2
     if wr * hr < rcfg["min_area_keep"] * w * h or wr < 1 or hr < 1:
         return img, 0.0
-    rot = img.rotate(med, resample=Image.BICUBIC, expand=True)
+    rot = img.rotate(med, resample=Image.BICUBIC, expand=True)  # screen-y-down: positive med rotates the tilt back level
     W, H = rot.size
     box = (int((W - wr) / 2), int((H - hr) / 2), int((W + wr) / 2), int((H + hr) / 2))
     return rot.crop(box), med

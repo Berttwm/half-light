@@ -65,6 +65,18 @@ def test_straighten_no_horizon_untouched():
     assert ang == 0.0 and out.size == (900, 600)       # noise = no consensus = no-op
     print("ok test_straighten_no_horizon_untouched")
 
+def test_straighten_single_short_line_untouched():
+    import numpy as np
+    from PIL import Image
+    from pipeline import grade
+    arr = np.full((600, 900, 3), 128, np.uint8)
+    for x in range(300, 550):                          # one short 3-degree edge, nothing else
+        y = int(300 + (x - 425) * 0.0524)
+        arr[y:y+3, x] = 20
+    out, ang = grade.straighten(Image.fromarray(arr), {"min_angle": 0.3, "max_angle": 4.0, "min_area_keep": 0.88})
+    assert ang == 0.0 and out.size == (900, 600), ang
+    print("ok test_straighten_single_short_line_untouched")
+
 def main():
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):
