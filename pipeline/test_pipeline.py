@@ -77,6 +77,42 @@ def test_straighten_single_short_line_untouched():
     assert ang == 0.0 and out.size == (900, 600), ang
     print("ok test_straighten_single_short_line_untouched")
 
+def test_white_balance_clamped():
+    import numpy as np
+    from pipeline import grade
+    rng = np.random.default_rng(1)
+    base = rng.random((80, 120, 3)).astype(np.float32) * 0.6
+    tinted = np.clip(base * np.array([1.35, 1.0, 0.75], np.float32), 0, 1)   # heavy warm cast
+    out, gains = grade.white_balance(tinted, {"strength": 0.30, "clamp": 0.06})
+    assert all(0.94 - 1e-6 <= g <= 1.06 + 1e-6 for g in gains), gains        # hard clamp
+    assert gains[2] > 1.0 > gains[0]                                          # pushes back toward neutral
+    print("ok test_white_balance_clamped")
+
+def test_exposure_lift_underexposed():
+    import numpy as np
+    from pipeline import grade
+    rng = np.random.default_rng(2)
+    arr = (rng.random((100, 150, 3)).astype(np.float32) * 0.30)               # median ~0.15
+    arr[:4, :4] = 0.995                                                       # protected highlights
+    ecfg = {"target_median": 0.42, "gamma_min": 0.60, "dark_skip": 0.02, "dark_soft": 0.08}
+    before_clip = float((arr.max(axis=-1) >= 0.99).mean())
+    out, gamma = grade.exposure_lift(arr, ecfg)
+    L = 0.2126 * out[..., 0] + 0.7152 * out[..., 1] + 0.0722 * out[..., 2]
+    assert float(np.median(L)) > 0.24                                          # visibly lifted
+    assert gamma >= 0.60 - 1e-9                                                # clamped lift
+    after_clip = float((out.max(axis=-1) >= 0.999).mean())
+    assert after_clip <= before_clip + 3e-3                                    # protect highlights, allow safe scaling
+    print("ok test_exposure_lift_underexposed")
+
+def test_exposure_lift_dark_scene_skipped():
+    import numpy as np
+    from pipeline import grade
+    arr = np.full((50, 50, 3), 0.008, np.float32)                              # the DSCF0204 case
+    ecfg = {"target_median": 0.42, "gamma_min": 0.60, "dark_skip": 0.02, "dark_soft": 0.08}
+    out, gamma = grade.exposure_lift(arr, ecfg)
+    assert gamma == 1.0 and float(np.abs(out - arr).max()) < 1e-6              # untouched
+    print("ok test_exposure_lift_dark_scene_skipped")
+
 def main():
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

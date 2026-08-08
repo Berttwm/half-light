@@ -80,3 +80,33 @@ def straighten(img, rcfg):
     W, H = rot.size
     box = (int((W - wr) / 2), int((H - hr) / 2), int((W + wr) / 2), int((H + hr) / 2))
     return rot.crop(box), med
+
+def white_balance(arr, wcfg):
+    s, c = wcfg["strength"], wcfg["clamp"]
+    if s <= 0:
+        return arr, [1.0, 1.0, 1.0]
+    flat = arr.reshape(-1, 3).astype(np.float64)
+    L = flat.mean(axis=1)
+    lo, hi = np.percentile(L, [1, 99])
+    sel = flat[(L >= lo) & (L <= hi)]
+    e = np.power(np.mean(np.power(sel, 6), axis=0), 1 / 6)          # shades-of-gray p=6
+    gains = np.power(e[1] / np.maximum(e, 1e-6), s)                  # partial, green-anchored
+    gains = np.clip(gains, 1 - c, 1 + c)
+    return np.clip(arr * gains.astype(np.float32), 0, 1), [float(g) for g in gains]
+
+def exposure_lift(arr, ecfg):
+    L = 0.2126 * arr[..., 0] + 0.7152 * arr[..., 1] + 0.0722 * arr[..., 2]
+    med = float(np.median(L))
+    if med < ecfg["dark_skip"]:
+        return arr, 1.0                                              # deliberate darkness stays dark
+    p = math.log(ecfg["target_median"]) / math.log(max(med, 1e-6))
+    p = min(1.0, max(ecfg["gamma_min"], p))
+    if med < ecfg["dark_soft"]:
+        p = (1.0 + p) / 2.0                                          # halve the lift near-dark
+    if p >= 1.0:
+        return arr, 1.0
+    Ls = np.power(np.maximum(L, 1e-6), p)
+    scale = Ls / np.maximum(L, 1e-6)
+    maxc = arr.max(axis=-1)
+    scale = np.minimum(scale, 1.0 / np.maximum(maxc, 1e-6))          # per-pixel: no channel above 1
+    return np.clip(arr * scale[..., None], 0, 1), float(p)
