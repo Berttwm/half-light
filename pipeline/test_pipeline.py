@@ -217,6 +217,47 @@ def test_compose_empty_inputs():
     assert out == {"reel": [], "sheet": []}
     print("ok test_compose_empty_inputs")
 
+def _fake_favorites(d):
+    from PIL import Image
+    import numpy as np
+    rng = np.random.default_rng(5)
+    for i, shade in ((1, 60), (2, 90)):
+        arr = (rng.random((400, 600, 3)) * shade).astype("uint8")
+        img = Image.fromarray(arr)
+        ex = Image.Exif()
+        ex[36867] = "2026:07:0%d 10:00:00" % i
+        img.save(os.path.join(d, "DSCF000%d.JPG" % i), exif=ex)
+
+def test_build_end_to_end_and_idempotent():
+    from pipeline import build
+    with tempfile.TemporaryDirectory() as src, tempfile.TemporaryDirectory() as root:
+        _fake_favorites(src)
+        os.makedirs(os.path.join(root, "site", "assets"))
+        for page in ("index.html", "contact.html"):
+            with open(os.path.join(root, "site", page), "w") as f:
+                f.write('<script src="assets/data.dev.js"></script>')
+        with open(os.path.join(root, "overrides.json"), "w") as f:
+            f.write("{}")
+        cfg = build.load_config()
+        cfg["source_dir"] = src
+        cfg["finish"]["long_edge"] = 512
+        cfg["guards"]["min_output_kb"] = 1
+        assert build.run(cfg, root=root) == 0
+        assets = os.listdir(os.path.join(root, "site", "assets"))
+        data = [a for a in assets if a.startswith("data.") and a != "data.dev.js"]
+        assert len(data) == 1, assets
+        html = open(os.path.join(root, "site", "index.html")).read()
+        assert data[0] in html                                   # reference rewritten
+        content = open(os.path.join(root, "site", "assets", data[0])).read()
+        assert "window.PHOTOS" in content and "window.SCENES" in content
+        assert os.path.exists(os.path.join(root, "site", "photos", "og.jpg"))
+        log1 = open(os.path.join(root, "site", "photos", ".log.jsonl")).read().count("graded")
+        assert log1 == 2
+        assert build.run(cfg, root=root) == 0                    # second run: all skipped
+        log = open(os.path.join(root, "site", "photos", ".log.jsonl")).read()
+        assert log.count('"skipped"') == 2
+    print("ok test_build_end_to_end_and_idempotent")
+
 def main():
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):
