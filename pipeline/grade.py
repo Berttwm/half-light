@@ -1,4 +1,4 @@
-import io, os
+import io
 from PIL import Image, ImageOps
 
 def decode(entry):
@@ -28,8 +28,6 @@ def decode(entry):
 def _fmt_date(v):
     return v.split(" ")[0].replace(":", ".") if v else ""
 
-_FLIPS = {3: Image.ROTATE_180, 6: Image.ROTATE_270, 8: Image.ROTATE_90}
-
 def _raf_meta(path):
     import exifread
     with open(path, "rb") as f:
@@ -39,10 +37,3 @@ def _raf_date(path):
     tags = _raf_meta(path)
     t = tags.get("EXIF DateTimeOriginal") or tags.get("Image DateTime")
     return _fmt_date(str(t)) if t else ""
-
-def _raf_transpose(img, path):
-    tags = _raf_meta(path)
-    t = tags.get("Image Orientation")
-    if t and t.values and t.values[0] in _FLIPS:
-        img = img.transpose(_FLIPS[t.values[0]])
-    return img
