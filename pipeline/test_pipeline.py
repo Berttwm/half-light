@@ -180,6 +180,35 @@ def test_analyze_bands():
     assert warm["tint"].startswith("#") and 0 <= warm["lum"] <= 1
     print("ok test_analyze_bands")
 
+def _mk(i, date, w, h, band, sat, lum):
+    return {"id": "DSCF%04d" % i, "frame": "%04d" % i, "date": date,
+            "w": w, "h": h, "band": band, "sat": sat, "lum": lum}
+
+def test_compose_rules():
+    from pipeline import compose
+    photos = [
+        _mk(1, "2026.05.01", 3, 2, 0, .3, .10),   # oldest landscape warm
+        _mk(2, "2026.05.02", 3, 2, 0, .3, .30),
+        _mk(3, "2026.05.03", 3, 2, 0, .3, .40),   # 1+2+3 = warm landscape run -> strip
+        _mk(4, "2026.05.04", 2, 3, 0, .3, .50),
+        _mk(5, "2026.05.05", 2, 3, 0, .3, .60),   # 4+5 adjacent warm portraits -> diptych
+        _mk(6, "2026.05.06", 2, 3, 2, .8, .35),   # cool portrait, highest sat -> iris solo
+        _mk(7, "2026.05.07", 3, 2, 0, .3, .05),   # darkest -> closer
+        _mk(8, "2026.05.08", 3, 2, 2, .4, .70),   # newest -> hero
+    ]
+    out = compose.compose(photos, {"reel_size": 14}, {})
+    reel = out["reel"]
+    assert reel[0] == {"type": "solo", "ids": ["DSCF0008"], "mask": "letterbox"}      # hero
+    assert reel[-1] == {"type": "solo", "ids": ["DSCF0007"], "mask": None}            # darkest closer
+    assert {"type": "strip", "ids": ["DSCF0001", "DSCF0002", "DSCF0003"], "mask": None} in reel
+    assert {"type": "diptych", "ids": ["DSCF0004", "DSCF0005"], "mask": None} in reel
+    assert {"type": "solo", "ids": ["DSCF0006"], "mask": "iris"} in reel
+    assert out["sheet"][0] == "DSCF0007"                     # band 0, darkest first
+    assert compose.compose(photos, {"reel_size": 14}, {}) == out                       # deterministic
+    out2 = compose.compose(photos, {"reel_size": 14}, {"DSCF0006": {"skip": True}})
+    assert all("DSCF0006" not in s["ids"] for s in out2["reel"])
+    print("ok test_compose_rules")
+
 def main():
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):
