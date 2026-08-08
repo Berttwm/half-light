@@ -34,6 +34,37 @@ def test_decode_orientation_and_date():
         assert meta["frame"] == "0250"
     print("ok test_decode_orientation_and_date")
 
+def test_straighten_tilted_horizon():
+    import numpy as np
+    from PIL import Image
+    from pipeline import grade
+    # sky over ground with a 2-degree horizon
+    w, h = 1200, 800
+    arr = np.zeros((h, w, 3), np.uint8)
+    for x in range(w):
+        yline = int(h * 0.5 + (x - w / 2) * 0.0349)   # tan(2 deg)
+        arr[:yline, x] = (140, 160, 190)
+        arr[yline:, x] = (60, 50, 40)
+    img = Image.fromarray(arr)
+    rcfg = {"min_angle": 0.3, "max_angle": 4.0, "min_area_keep": 0.88}
+    out, ang = grade.straighten(img, rcfg)
+    assert 1.0 < abs(ang) < 3.0, ang                   # detected roughly the 2-degree tilt
+    assert out.size[0] * out.size[1] >= 0.88 * w * h   # inscribed crop keeps >= 88% area
+    # residual check: re-run finds nothing left to fix
+    out2, ang2 = grade.straighten(out, rcfg)
+    assert ang2 == 0.0 or abs(ang2) < 0.5, ang2
+    print("ok test_straighten_tilted_horizon")
+
+def test_straighten_no_horizon_untouched():
+    import numpy as np
+    from PIL import Image
+    from pipeline import grade
+    rng = np.random.default_rng(7)
+    img = Image.fromarray(rng.integers(0, 255, (600, 900, 3), np.uint8))
+    out, ang = grade.straighten(img, {"min_angle": 0.3, "max_angle": 4.0, "min_area_keep": 0.88})
+    assert ang == 0.0 and out.size == (900, 600)       # noise = no consensus = no-op
+    print("ok test_straighten_no_horizon_untouched")
+
 def main():
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):
