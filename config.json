@@ -1,0 +1,16 @@
+{
+  "title": "Half-Light",
+  "intro_line": "the inner machinations of a photographic mind are an enigma",
+  "source_dir": "E:/Videos_Photos/X100T Photos/favorites",
+  "reel_size": 14,
+  "exposure": { "target_median": 0.42, "gamma_min": 0.60, "dark_skip": 0.02, "dark_soft": 0.08 },
+  "wb": { "strength": 0.30, "clamp": 0.06 },
+  "rotate": { "min_angle": 0.3, "max_angle": 4.0, "min_area_keep": 0.88 },
+  "look": { "fade_black": 0.05, "white_ceiling": 0.98, "shoulder": 0.80, "saturation": 0.95,
+            "highlight_desat": 0.15, "shadow_tone": [-0.004, 0.004, 0.016],
+            "highlight_tone": [0.014, 0.006, -0.008] },
+  "finish": { "long_edge": 2048, "thumb_edge": 1024, "latent_edge": 64, "vignette": 0.20,
+              "halation_thr": 0.86, "halation_op": 0.14, "halation_tint": [1.0, 0.55, 0.25],
+              "grain_base": 4.0, "grain_size": 0.9, "webp_q": 85 },
+  "guards": { "min_output_kb": 20, "max_fail_frac": 0.25 }
+}
