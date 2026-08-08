@@ -124,6 +124,37 @@ def test_exposure_lift_dark_scene_skipped():
     assert gamma == 1.0 and float(np.abs(out - arr).max()) < 1e-6              # untouched
     print("ok test_exposure_lift_dark_scene_skipped")
 
+def test_look_lut_fade_and_monotonic():
+    import numpy as np
+    from PIL import Image
+    from pipeline import grade
+    lcfg = {"fade_black": 0.05, "white_ceiling": 0.98, "shoulder": 0.80, "saturation": 0.95,
+            "highlight_desat": 0.15, "shadow_tone": [-0.004, 0.004, 0.016],
+            "highlight_tone": [0.014, 0.006, -0.008]}
+    lut = grade.build_look_lut(lcfg)
+    ramp = Image.fromarray(np.tile(np.arange(256, dtype=np.uint8), (4, 1))).convert("RGB")
+    out = np.asarray(ramp.filter(lut)).astype(int)
+    assert out[0, 0].mean() >= int(0.04 * 255)          # blacks faded up
+    assert out[0, 255].mean() <= int(0.99 * 255)        # whites rolled down
+    grey = out.mean(axis=2)[0]
+    assert all(int(grey[i + 8]) >= int(grey[i]) - 1 for i in range(0, 248, 8))   # monotonic tone curve
+    print("ok test_look_lut_fade_and_monotonic")
+
+def test_finish_grain_and_size():
+    import numpy as np
+    from PIL import Image
+    from pipeline import grade
+    fcfg = {"long_edge": 512, "vignette": 0.20, "halation_thr": 0.86, "halation_op": 0.14,
+            "halation_tint": [1.0, 0.55, 0.25], "grain_base": 4.0, "grain_size": 0.9}
+    flat = Image.new("RGB", (1024, 683), (110, 110, 110))
+    out = grade.finish(flat, fcfg, seed=42)
+    assert max(out.size) == 512
+    center = np.asarray(out)[300:340, 220:280].astype(np.float32)
+    assert 1.0 < center.std() < 9.0                     # grain present, not noise soup
+    out2 = grade.finish(Image.new("RGB", (1024, 683), (110, 110, 110)), fcfg, seed=42)
+    assert np.array_equal(np.asarray(out), np.asarray(out2))    # deterministic per seed
+    print("ok test_finish_grain_and_size")
+
 def main():
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):
