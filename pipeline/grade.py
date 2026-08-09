@@ -118,7 +118,7 @@ def exposure_lift(arr, ecfg):
 
 def build_look_lut(lcfg):
     fb, wc = lcfg["fade_black"], lcfg["white_ceiling"]
-    sat = lcfg["saturation"] + lcfg.get("sat_boost", 0.0)   # adaptive boost added pre-shaping
+    sat, sat_boost = lcfg["saturation"], lcfg.get("sat_boost", 0.0)
     hd, sh = lcfg["highlight_desat"], lcfg["shoulder"]
     slope = lcfg.get("shoulder_slope", 0.8)
     toe_depth, toe_end = lcfg.get("toe_depth", 0.0), lcfg.get("toe_end", 0.25)
@@ -133,7 +133,9 @@ def build_look_lut(lcfg):
     B, G, R = np.meshgrid(coords, coords, coords, indexing="ij")
     v = np.stack([R, G, B], axis=-1)
     L = (0.2126 * R + 0.7152 * G + 0.0722 * B)[..., None]
-    v = L + (v - L) * (sat * (1 - hd * L * L))             # sat shaping, desat near white
+    chroma = (np.maximum(np.maximum(R, G), B) - np.minimum(np.minimum(R, G), B))[..., None]
+    vib = sat_boost * (1.0 - np.minimum(1.0, chroma * 1.6))   # vibrance: muted pixels get the boost, saturated self-limit
+    v = L + (v - L) * ((sat + vib) * (1 - hd * L * L))     # sat shaping, desat near white
     v = v + st * (1 - L) ** 2 + ht * L ** 2                # split tone
     v = fb + (wc - fb) * v                                 # fade floor + ceiling
     t = np.clip(L / toe_end, 0, 1)

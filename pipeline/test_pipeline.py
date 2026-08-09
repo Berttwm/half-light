@@ -152,6 +152,23 @@ def test_look_lut_toe_darkens_shadows():
     assert out1.mean() < out0.mean() - 3            # toe visibly darkens a mid-shadow value vs toe_depth 0
     print("ok test_look_lut_toe_darkens_shadows")
 
+def test_look_lut_vibrance_self_limits():
+    import numpy as np
+    from PIL import Image
+    from pipeline import grade
+    base = {"fade_black": 0.0, "white_ceiling": 1.0, "shoulder": 0.95, "saturation": 1.0,
+            "highlight_desat": 0.0, "shadow_tone": [0, 0, 0], "highlight_tone": [0, 0, 0]}
+    def chroma_gain(rgb):
+        px = Image.new("RGB", (2, 2), tuple(int(round(c * 255)) for c in rgb))
+        def chroma(lut):
+            a = np.asarray(px.filter(lut)).astype(np.float32)[0, 0]
+            return float(a.max() - a.min())
+        return chroma(grade.build_look_lut({**base, "sat_boost": 0.2})) - chroma(grade.build_look_lut(base))
+    muted_gain = chroma_gain((.5, .45, .42))          # low input chroma
+    saturated_gain = chroma_gain((.8, .3, .2))        # already-saturated input
+    assert muted_gain > saturated_gain > 0            # vibrance: muted pixel gains more than a saturated one
+    print("ok test_look_lut_vibrance_self_limits")
+
 def test_finish_grain_and_size():
     import numpy as np
     from PIL import Image
