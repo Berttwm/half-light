@@ -168,11 +168,13 @@ def _fit_stats(ours, ref):
             "warm_sat_ratio": round(warm_o / warm_r, 3) if warm_r > 1e-6 else None,
             "cool_sat_ratio": round(cool_o / cool_r, 3) if cool_r > 1e-6 else None}
 
+CAL_EXT = {"sooc": "webp", "v3": "webp", "ref": "jpg"}   # ref is a straight copy of the client's own jpg
+
 def _calibrate_html(picks, ref_stems, fits):
     rows = []
     for stem, reason in picks:
         cols = ["sooc", "v3"] + (["ref"] if stem in ref_stems else [])
-        cells = "".join('<div class="cell"><img src="cal/%s/%s.webp" loading="lazy"></div>' % (c, stem)
+        cells = "".join('<div class="cell"><img src="cal/%s/%s.%s" loading="lazy"></div>' % (c, stem, CAL_EXT[c])
                          for c in cols)
         fit_html = ""
         if stem in fits:
@@ -247,8 +249,12 @@ def calibrate(cfg, root=ROOT):
             fits[stem] = _fit_stats(graded, Image.open(ref_path))
         print("  calibrated", stem, "-", reason, "-", regime_log)
 
+    html = _calibrate_html(picks, set(ref_by_stem), fits)
     with open(os.path.join(work, "calibrate.html"), "w", encoding="utf-8") as f:
-        f.write(_calibrate_html(picks, set(ref_by_stem), fits))
+        f.write(html)
+    for src in re.findall(r'src="([^"]+)"', html):        # every <img> must resolve on disk
+        if not os.path.exists(os.path.join(work, src)):
+            print("WARNING: calibrate.html references missing file:", src)
     if fits:
         print("FIT vs client reference edits (our V3 vs his edit):")
         for stem in REF_MAP.values():
