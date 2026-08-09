@@ -55,6 +55,18 @@ To rename the site and gallery:
 
 All other site content (layout, grid, styling) derives at build time and requires no manual edits.
 
+## The Grade (frozen 2026-08-09)
+
+Every photo is graded individually — there is no single fixed filter. The pipeline measures each photo (median luminance, warm-hue fraction, colorfulness) and computes its own parameters per photo:
+
+- **Dark scenes** (caves, night): near-identity tone, gentle highlight glow, cool-hue cleanup — deliberate darkness is preserved (photos below a luminance floor are never lifted at all).
+- **Mid-bright warm scenes** (facades, golden interiors): firm contrast (deep toe + midtone lift) with the *golden* treatment — warm-hue saturation and luminance raised together, hue-gated, self-limiting on already-vivid pixels.
+- **Very bright scenes** (backlit skylights): strong luminous lift that keeps chroma, plus a narrow pink/magenta band boost for stained-glass tints.
+
+The profile was fitted numerically against the owner's own hand-graded reference edits (per-pair tone-transfer and per-hue chroma measurement) and cross-checked against researched grading lookbooks: Kodak Gold's sat+luminance golden pairing, Portra's soft highlight shoulder, Classic Chrome's hue-gated restraint, Kinfolk/Cereal editorial-vs-viral saturation discipline, and current (2026) zero-grain premium direction. Deliberate exclusions: no grain, no fade/lifted blacks, no global saturation pushes, no teal-boost trends.
+
+All knobs live in `config.json` (`look`, `exposure`, `finish`) — the freeze is a starting point, not a cage. Per-photo regime decisions are logged in `site/photos/.log.jsonl` (`"regime"` field).
+
 ## Overrides: Skip, Caption, Relift
 
 The `overrides.json` file lets you customize individual photos without rebuilding. Schema:
