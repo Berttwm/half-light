@@ -1,16 +1,77 @@
-import hashlib, json, os, re, sys, time
+import hashlib, json, math, os, re, sys, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # ponytail: calibration is a one-shot human-in-the-loop dev tool, not a shipped
 # feature — no tests added for it by design (see task-12 brief step 1).
-# LOOK V2 (round 2): axis is exposure/toe/adaptive-sat/shoulder strength, not
-# the old saturation/tone_mul/grain axis — client rejected the film-fade look.
-VARIANTS = {
-    "L-soft":   {"exposure_target": 0.45, "toe_depth": 0.02,  "sat_adaptive_max": 0.10, "shoulder": 0.75},
-    "L-med":    {"exposure_target": 0.47, "toe_depth": 0.03,  "sat_adaptive_max": 0.14, "shoulder": 0.72},
-    "L-strong": {"exposure_target": 0.50, "toe_depth": 0.045, "sat_adaptive_max": 0.20, "shoulder": 0.68},
-}
+# LOOK V3 (round 3): empirically-fitted regime layer replaces the old dose
+# variants entirely — one grade per photo, adapted to its own brightness/hue
+# content instead of a human picking soft/med/strong.
+
+REGIME_KEYS = ("toe_depth", "mid_lift", "warm_sat_mult", "warm_lum_add", "cool_sat_mult", "shoulder")
+
+def _clamp01(x):
+    return max(0.0, min(1.0, x))
+
+def _lerp(a, b, t):
+    return a + (b - a) * t
+
+def _measure_regime(arr):
+    """med_L (median luma), warm_frac (share of pixels in the warm hue band with
+    real saturation) on a 96px thumb of a post-lift array. Shared by run() and
+    calibrate() so both grade identically."""
+    from PIL import Image
+    import numpy as np
+    from pipeline import grade
+    small = Image.fromarray((np.clip(arr, 0, 1) * 255).astype("uint8"))
+    small.thumbnail((96, 96))
+    a = np.asarray(small, dtype=np.float32) / 255.0
+    L = 0.2126 * a[..., 0] + 0.7152 * a[..., 1] + 0.0722 * a[..., 2]
+    maxc, minc = a.max(axis=-1), a.min(axis=-1)
+    S = np.where(maxc > 0, (maxc - minc) / np.maximum(maxc, 1e-6), 0.0)
+    hue = grade.hue_deg(a[..., 0], a[..., 1], a[..., 2])
+    warm = (hue >= 5) & (hue <= 70) & (S > 0.15)
+    return float(np.median(L)), float(warm.mean()), float(S.mean())
+
+def _regime_look(cfg, arr):
+    """LOOK V3 regime layer: derives per-photo toe/mid/warm-cool LUT params from
+    the photo's own measured brightness and warm-hue content (client-fitted
+    formula, see task-12-report ROUND 3). Returns (look_dict, log_dict).
+    `look_strength` scales the regime *signal* (bright/golden/pastel) before it
+    feeds the lerps — at 0 every photo grades at the dark-regime baseline."""
+    med_L, warm_frac, _scene_sat = _measure_regime(arr)
+    lk = cfg["look"]
+    ls = lk.get("look_strength", 1.0)
+    bright = _clamp01((med_L - 0.15) / 0.30)
+    golden_gate = _clamp01((warm_frac - 0.12) / 0.35)
+    golden_bell = math.exp(-((med_L - 0.42) ** 2) / (2 * 0.15 ** 2))
+    pastel = _clamp01((med_L - 0.55) / 0.15)
+    bright_s = bright * ls
+    golden_s = golden_bell * golden_gate * ls
+    pastel_s = pastel * golden_gate * ls
+
+    params = {
+        "toe_depth": round(_lerp(lk["toe_dark"], lk["toe_bright"], bright_s), 3),
+        "mid_lift": round(_lerp(0.010, 0.045, bright_s), 3),
+        # ROUND 3 fit-check on DSCF0212 (facade, golden~0.975) undershot the client's
+        # warm saturation (0.38 coefficient measured ratio 0.64 vs target 0.88-1.12).
+        # Root cause: mid_lift's per-channel curve + highlight_desat compound to tame
+        # the realized boost well below a naive "x1.38"; a naive SOOC-warm-S x1.38
+        # reproduces the reference almost exactly (0.620 vs 0.610), confirming 1.38 is
+        # the right peak multiplier, not a wrong coefficient. Bumped once (0.38->0.55,
+        # +45%) as a bounded, still self-limiting correction; did not chase the ~2.0
+        # coefficient the crude fit-check alone would need to clear threshold, since
+        # that would blow past the brief's "self-limiting, not a global push" guardrail
+        # and oversaturate less-extreme warm scenes. See ROUND 3 report for the numbers.
+        "warm_sat_mult": round(1 + 0.55 * golden_s - 0.28 * pastel_s, 3),
+        "warm_lum_add": round(0.09 * golden_s + 0.04 * pastel_s, 3),
+        "cool_sat_mult": round(_lerp(0.85, 0.96, bright_s), 3),
+        "shoulder": round(_lerp(0.80, 0.72, bright_s), 3),
+    }
+    look = dict(lk, **params)
+    regime_log = {"med": round(med_L, 3), "bright": round(bright, 3),
+                  "golden": round(golden_bell * golden_gate, 3), "pastel": round(pastel, 3)}
+    return look, regime_log
 
 def load_config(path=None):
     with open(path or os.path.join(ROOT, "config.json"), encoding="utf-8") as f:
@@ -70,39 +131,64 @@ def select_calibration_stems(manifest):
     picks += take(sorted(entries, key=lambda e: (-e["lum"], e["id"])), "brightest", 1)
     return picks
 
-def _sat_bucket(arr):
-    """4-level adaptive-saturation bucket (0-3) from mean HSV S of a 64px thumb
-    of the current (post exposure-lift) array. Shared by run() and calibrate()
-    so both apply identical bucketing."""
-    from PIL import Image
-    import numpy as np
-    small = Image.fromarray((np.clip(arr, 0, 1) * 255).astype("uint8"))
-    small.thumbnail((64, 64))
-    s_mean = float(np.asarray(small.convert("HSV"), dtype=np.float32)[..., 1].mean()) / 255.0
-    return min(3, int(s_mean / 0.12))
+# client's own reference edits (identification verified by controller) —
+# refs live as siblings of source_dir: <X100T Photos>/refs/photo_N_*.jpg
+REF_MAP = {"photo_1": "DSCF0212", "photo_2": "DSCF0022", "photo_3": "DSCF0018", "photo_4": "DSCF0252"}
 
-def _calibrate_html(picks, variants):
-    cols = ["sooc"] + list(variants)
+def _fit_stats(ours, ref):
+    """Simple fit check between our V3 grade and the client's reference edit:
+    median-luma delta and warm/cool-bin saturation ratios, both measured the
+    same way as the regime layer itself so the numbers are comparable."""
+    import numpy as np
+    from pipeline import grade
+    def stats(img):
+        small = img.convert("RGB").copy()
+        small.thumbnail((256, 256))
+        a = np.asarray(small, dtype=np.float32) / 255.0
+        L = 0.2126 * a[..., 0] + 0.7152 * a[..., 1] + 0.0722 * a[..., 2]
+        maxc, minc = a.max(axis=-1), a.min(axis=-1)
+        S = np.where(maxc > 0, (maxc - minc) / np.maximum(maxc, 1e-6), 0.0)
+        hue = grade.hue_deg(a[..., 0], a[..., 1], a[..., 2])
+        warm, cool = (hue >= 5) & (hue <= 70), (hue >= 95) & (hue <= 235)
+        return (float(np.median(L)), float(S[warm].mean()) if warm.any() else 0.0,
+                float(S[cool].mean()) if cool.any() else 0.0)
+    med_o, warm_o, cool_o = stats(ours)
+    med_r, warm_r, cool_r = stats(ref)
+    return {"med_L_delta": round(med_o - med_r, 3),
+            "warm_sat_ratio": round(warm_o / warm_r, 3) if warm_r > 1e-6 else None,
+            "cool_sat_ratio": round(cool_o / cool_r, 3) if cool_r > 1e-6 else None}
+
+def _calibrate_html(picks, ref_stems, fits):
     rows = []
     for stem, reason in picks:
+        cols = ["sooc", "v3"] + (["ref"] if stem in ref_stems else [])
         cells = "".join('<div class="cell"><img src="cal/%s/%s.webp" loading="lazy"></div>' % (c, stem)
                          for c in cols)
-        rows.append('<div class="stem">%s — %s</div><div class="row">%s</div>' % (stem, reason, cells))
-    head = "".join('<div class="h">%s</div>' % c for c in cols)
+        fit_html = ""
+        if stem in fits:
+            f = fits[stem]
+            fit_html = ('<div class="fit">fit vs ref — median L delta %+.3f  '
+                        'warm sat ratio %s  cool sat ratio %s</div>' %
+                        (f["med_L_delta"], f["warm_sat_ratio"], f["cool_sat_ratio"]))
+        rows.append('<div class="stem">%s — %s</div><div class="row cols%d">%s</div>%s' %
+                     (stem, reason, len(cols), cells, fit_html))
     return """<!doctype html><meta charset="utf-8"><title>calibration</title>
 <style>
 body{background:#131313;color:#ddd;font-family:monospace;margin:0;padding:24px}
-.head,.row{display:grid;grid-template-columns:repeat(%d,1fr);gap:8px}
-.head{position:sticky;top:0;background:#131313;padding:8px 0;text-transform:uppercase;
-      letter-spacing:.08em;color:#888;font-size:12px}
+.legend{text-transform:uppercase;letter-spacing:.08em;color:#888;font-size:12px;margin-bottom:8px}
+.row{display:grid;gap:8px}
+.cols2{grid-template-columns:repeat(2,1fr)}
+.cols3{grid-template-columns:repeat(3,1fr)}
 .cell img{width:100%%;display:block}
 .stem{margin:28px 0 6px;color:#777;font-size:13px}
+.fit{color:#6a6;font-size:12px;margin-top:4px}
 </style>
-<div class="head">%s</div>
+<div class="legend">sooc / half-light v3 / your edit (client refs only)</div>
 %s
-""" % (len(cols), head, "\n".join(rows))
+""" % "\n".join(rows)
 
 def calibrate(cfg, root=ROOT):
+    import glob, shutil
     from PIL import Image
     import numpy as np
     from pipeline import grade
@@ -111,12 +197,20 @@ def calibrate(cfg, root=ROOT):
     overrides = json.load(open(os.path.join(root, "overrides.json"), encoding="utf-8"))
     sources = {e["stem"]: e for e in scan_sources(cfg["source_dir"])}
     picks = select_calibration_stems(manifest)
+    ref_by_stem = {}
+    refs_dir = os.path.join(os.path.dirname(cfg["source_dir"]), "refs")
+    if os.path.isdir(refs_dir):
+        for photo_id, stem in REF_MAP.items():
+            hits = glob.glob(os.path.join(refs_dir, photo_id + "_*"))
+            if hits:
+                ref_by_stem[stem] = hits[0]
 
     work = os.path.join(root, "_work")
     cal = os.path.join(work, "cal")
-    for sub in ["sooc"] + list(VARIANTS):
+    for sub in ("sooc", "v3", "ref"):
         os.makedirs(os.path.join(cal, sub), exist_ok=True)
 
+    fits = {}
     for stem, reason in picks:
         entry = sources[stem]
         img, _meta = grade.decode(entry)
@@ -126,29 +220,33 @@ def calibrate(cfg, root=ROOT):
         sooc.thumbnail((1024, 1024), Image.LANCZOS)
         sooc.save(os.path.join(cal, "sooc", stem + ".webp"), format="WEBP", quality=85, method=6)
 
-        base_arr = np.asarray(img).astype(np.float32) / 255.0
-        base_arr, _wb = grade.white_balance(base_arr, cfg["wb"])
+        arr = np.asarray(img).astype(np.float32) / 255.0
+        arr, _wb = grade.white_balance(arr, cfg["wb"])
         seed = int(hashlib.sha1(stem.encode()).hexdigest()[:8], 16)
+        if not overrides.get(stem, {}).get("no_lift"):
+            arr, _gamma = grade.exposure_lift(arr, cfg["exposure"])
+        look, regime_log = _regime_look(cfg, arr)
+        graded = Image.fromarray((arr * 255).astype("uint8")).filter(grade.build_look_lut(look))
+        fcfg = dict(cfg["finish"], long_edge=1024, grain_base=0.0)   # client formula: no grain
+        graded = grade.finish(graded, fcfg, seed)
+        graded.save(os.path.join(cal, "v3", stem + ".webp"), format="WEBP", quality=85, method=6)
 
-        # each variant carries its own exposure_target, so lift (and the
-        # sat bucket it feeds) is recomputed per variant, not shared.
-        for name, v in VARIANTS.items():
-            arr = base_arr
-            if not overrides.get(stem, {}).get("no_lift"):
-                ecfg = {**cfg["exposure"], "target_median": v["exposure_target"]}
-                arr, _gamma = grade.exposure_lift(arr, ecfg)
-            b = _sat_bucket(arr)                                   # same bucketing as the real build
-            look = {**cfg["look"], "toe_depth": v["toe_depth"], "shoulder": v["shoulder"],
-                    "sat_boost": v["sat_adaptive_max"] * b / 3}
-            graded = Image.fromarray((arr * 255).astype("uint8")).filter(grade.build_look_lut(look))
-            fcfg = dict(cfg["finish"], long_edge=1024, grain_base=0.0)   # client formula: no grain
-            graded = grade.finish(graded, fcfg, seed)
-            graded.save(os.path.join(cal, name, stem + ".webp"), format="WEBP", quality=85, method=6)
-        print("  calibrated", stem, "-", reason)
+        ref_path = ref_by_stem.get(stem)
+        if ref_path:
+            shutil.copy(ref_path, os.path.join(cal, "ref", stem + ".jpg"))
+            fits[stem] = _fit_stats(graded, Image.open(ref_path))
+        print("  calibrated", stem, "-", reason, "-", regime_log)
 
     with open(os.path.join(work, "calibrate.html"), "w", encoding="utf-8") as f:
-        f.write(_calibrate_html(picks, VARIANTS))
-    print("CALIBRATE OK: %d photos x %d variants -> _work/calibrate.html" % (len(picks), len(VARIANTS)))
+        f.write(_calibrate_html(picks, set(ref_by_stem), fits))
+    if fits:
+        print("FIT vs client reference edits (our V3 vs his edit):")
+        for stem in REF_MAP.values():
+            if stem in fits:
+                f = fits[stem]
+                print("  %s  median L delta %+.3f  warm sat ratio %s  cool sat ratio %s" %
+                      (stem, f["med_L_delta"], f["warm_sat_ratio"], f["cool_sat_ratio"]))
+    print("CALIBRATE OK: %d photos -> _work/calibrate.html" % len(picks))
     return 0
 
 def run(cfg, root=ROOT, force=False):
@@ -163,7 +261,7 @@ def run(cfg, root=ROOT, force=False):
     manifest = json.load(open(manifest_p)) if os.path.exists(manifest_p) else {}
     overrides = json.load(open(os.path.join(root, "overrides.json"), encoding="utf-8"))
     entries = scan_sources(cfg["source_dir"])
-    luts = {}   # one LUT per adaptive-sat bucket, built lazily and cached for the run
+    luts = {}   # one LUT per regime param tuple, built lazily and cached for the run
     log_lines, errors = [], 0
     for e in entries:
         h = _sha1_file(e["path"])
@@ -179,11 +277,11 @@ def run(cfg, root=ROOT, force=False):
                 arr, gamma = grade.exposure_lift(arr, cfg["exposure"])
             else:
                 gamma = 1.0
-            sat_bucket = _sat_bucket(arr)
-            if sat_bucket not in luts:
-                sat_boost = cfg["look"].get("sat_adaptive_max", 0.0) * sat_bucket / 3
-                luts[sat_bucket] = grade.build_look_lut({**cfg["look"], "sat_boost": sat_boost})
-            img = Image.fromarray((arr * 255).astype("uint8")).filter(luts[sat_bucket])
+            look, regime_log = _regime_look(cfg, arr)
+            lut_key = tuple(look[k] for k in REGIME_KEYS)
+            if lut_key not in luts:
+                luts[lut_key] = grade.build_look_lut(look)
+            img = Image.fromarray((arr * 255).astype("uint8")).filter(luts[lut_key])
             seed = int(hashlib.sha1(e["stem"].encode()).hexdigest()[:8], 16)
             img = grade.finish(img, cfg["finish"], seed)
             paths = grade.save_outputs(img, e["stem"], photos_dir, cfg["finish"])
@@ -197,7 +295,7 @@ def run(cfg, root=ROOT, force=False):
             state[e["stem"]] = h
             log_lines.append({"stem": e["stem"], "action": "graded", "gamma": round(gamma, 3),
                               "wb": [round(g, 3) for g in wb], "angle": round(angle, 2),
-                              "sat_bucket": sat_bucket})
+                              "regime": regime_log})
         except Exception as ex:
             errors += 1
             log_lines.append({"stem": e["stem"], "action": "error", "error": str(ex)})

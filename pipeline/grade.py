@@ -116,12 +116,36 @@ def exposure_lift(arr, ecfg):
     scale = np.maximum(scale, 1.0)                    # lift-only: never darken a pixel
     return np.clip(arr * scale[..., None], 0, 1), float(p)
 
+def hue_deg(r, g, b):
+    """Vectorized hue in degrees 0-360 (colorsys-style six-case formula), same
+    shape as r/g/b. Shared by grade.build_look_lut and build.py's regime measurement."""
+    maxc = np.maximum(np.maximum(r, g), b)
+    minc = np.minimum(np.minimum(r, g), b)
+    safe_c = np.where(maxc == minc, 1.0, maxc - minc)
+    rc, gc, bc = (maxc - r) / safe_c, (maxc - g) / safe_c, (maxc - b) / safe_c
+    h6 = np.where(r == maxc, bc - gc, np.where(g == maxc, 2.0 + rc - bc, 4.0 + gc - rc))
+    return (h6 / 6.0) % 1.0 * 360.0
+
+def _smoothstep(a, b, x):
+    t = np.clip((x - a) / (b - a), 0, 1)
+    return t * t * (3 - 2 * t)
+
+def _bell(h, lo, mid, hi):
+    """0 at lo/hi, 1 at mid, smoothstep ramps either side (asymmetric spans ok)."""
+    up = _smoothstep(lo, mid, h)
+    down = 1.0 - _smoothstep(mid, hi, h)
+    return np.where(h <= mid, up, down)
+
 def build_look_lut(lcfg):
     fb, wc = lcfg["fade_black"], lcfg["white_ceiling"]
     sat, sat_boost = lcfg["saturation"], lcfg.get("sat_boost", 0.0)
     hd, sh = lcfg["highlight_desat"], lcfg["shoulder"]
     slope = lcfg.get("shoulder_slope", 0.8)
     toe_depth, toe_end = lcfg.get("toe_depth", 0.0), lcfg.get("toe_end", 0.25)
+    mid_lift = lcfg.get("mid_lift", 0.0)
+    warm_sat_mult = lcfg.get("warm_sat_mult", 1.0)
+    warm_lum_add = lcfg.get("warm_lum_add", 0.0)
+    cool_sat_mult = lcfg.get("cool_sat_mult", 1.0)
     st = np.array(lcfg["shadow_tone"])
     ht = np.array(lcfg["highlight_tone"])
 
@@ -133,11 +157,24 @@ def build_look_lut(lcfg):
     B, G, R = np.meshgrid(coords, coords, coords, indexing="ij")
     v = np.stack([R, G, B], axis=-1)
     L = (0.2126 * R + 0.7152 * G + 0.0722 * B)[..., None]
-    chroma = (np.maximum(np.maximum(R, G), B) - np.minimum(np.minimum(R, G), B))[..., None]
+    maxc = np.maximum(np.maximum(R, G), B)
+    minc = np.minimum(np.minimum(R, G), B)
+    chroma = (maxc - minc)[..., None]
     vib = sat_boost * (1.0 - np.minimum(1.0, chroma * 1.6))   # vibrance: muted pixels get the boost, saturated self-limit
-    v = L + (v - L) * ((sat + vib) * (1 - hd * L * L))     # sat shaping, desat near white
-    v = v + st * (1 - L) ** 2 + ht * L ** 2                # split tone
-    v = fb + (wc - fb) * v                                 # fade floor + ceiling
+
+    hue = hue_deg(R, G, B)[..., None]
+    warm_w = _bell(hue, 5.0, 32.0, 70.0)      # warm bell: steeper toward red/skin (27deg) than yellow (38deg)
+    cool_w = _bell(hue, 95.0, 165.0, 235.0)
+
+    sat_shaping = (sat + vib) * (1 - hd * L * L)
+    sat_factor = (sat_shaping
+                  * (1 + (warm_sat_mult - 1) * warm_w * (1 - np.minimum(1.0, chroma * 1.3)))
+                  * (1 - (1 - cool_sat_mult) * cool_w))
+    v = L + (v - L) * sat_factor                            # sat shaping, hue-gated warm/cool, desat near white
+    v = v + warm_lum_add * warm_w * np.minimum(1.0, chroma * 2.0)  # luminance push, warm entries only
+    v = v + st * (1 - L) ** 2 + ht * L ** 2                 # split tone
+    v = fb + (wc - fb) * v                                  # fade floor + ceiling
+    v = v + mid_lift * v * (1 - v) * 2                       # parabolic mid bump, before the toe re-anchors blacks
     t = np.clip(L / toe_end, 0, 1)
     sm = t * t * (3 - 2 * t)                                # smoothstep(0, toe_end, L)
     v = v - toe_depth * (1 - sm) ** 2                       # toe: smooth shadow darkening, 0 when toe_depth=0

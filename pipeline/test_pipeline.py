@@ -138,6 +138,14 @@ def test_look_lut_fade_and_monotonic():
     assert out[0, 255].mean() <= int(0.99 * 255)        # whites rolled down
     grey = out.mean(axis=2)[0]
     assert all(int(grey[i + 8]) >= int(grey[i]) - 1 for i in range(0, 248, 8))   # monotonic tone curve
+
+    # LOOK V3: full regime param set at its bright-regime extreme (facade-like) must
+    # still hold a monotonic tone curve — mid_lift/warm boosts are the new risk here.
+    v3 = {**lcfg, "mid_lift": 0.045, "warm_sat_mult": 1.38, "warm_lum_add": 0.09,
+          "cool_sat_mult": 0.96, "toe_depth": 0.045, "toe_end": 0.25, "shoulder": 0.72}
+    out_v3 = np.asarray(ramp.filter(grade.build_look_lut(v3))).astype(int)
+    grey_v3 = out_v3.mean(axis=2)[0]
+    assert all(int(grey_v3[i + 8]) >= int(grey_v3[i]) - 1 for i in range(0, 248, 8))
     print("ok test_look_lut_fade_and_monotonic")
 
 def test_look_lut_toe_darkens_shadows():
@@ -163,11 +171,40 @@ def test_look_lut_vibrance_self_limits():
         def chroma(lut):
             a = np.asarray(px.filter(lut)).astype(np.float32)[0, 0]
             return float(a.max() - a.min())
-        return chroma(grade.build_look_lut({**base, "sat_boost": 0.2})) - chroma(grade.build_look_lut(base))
-    muted_gain = chroma_gain((.5, .45, .42))          # low input chroma
-    saturated_gain = chroma_gain((.8, .3, .2))        # already-saturated input
-    assert muted_gain > saturated_gain > 0            # vibrance: muted pixel gains more than a saturated one
+        return chroma(grade.build_look_lut({**base, "warm_sat_mult": 1.5})) - chroma(grade.build_look_lut(base))
+    muted_gain = chroma_gain((.5, .45, .42))          # low-chroma warm/skin-like entry, hue ~22deg
+    saturated_gain = chroma_gain((.8, .3, .2))        # already-saturated warm entry, hue ~10deg
+    assert muted_gain > saturated_gain > 0            # self-limiting: muted warm entry gains more than saturated one
     print("ok test_look_lut_vibrance_self_limits")
+
+def _mk_regime_arr(L, warm_frac):
+    """Synthetic 100x100 array with an exact median luminance L: every pixel
+    shares that same weighted luma, so mixing a warm-hued fraction with a
+    perfectly gray fraction can't shift the median off target."""
+    import colorsys
+    import numpy as np
+    r, g, b = colorsys.hsv_to_rgb(32 / 360, 0.5, 1.0)          # hue 32deg, S 0.5 (bell peak)
+    k = L / (0.2126 * r + 0.7152 * g + 0.0722 * b)              # scale preserves hue & S, hits L exactly
+    warm = np.array([r * k, g * k, b * k], np.float32)
+    n = 100 * 100
+    arr = np.tile(np.array([L, L, L], np.float32), (n, 1))
+    arr[: int(n * warm_frac)] = warm
+    return arr.reshape(100, 100, 3)
+
+def test_regime_params():
+    from pipeline import build
+    cfg = {"look": {"toe_dark": 0.008, "toe_bright": 0.045, "look_strength": 1.0}}
+
+    dark_look, _ = build._regime_look(cfg, _mk_regime_arr(0.06, 0.05))       # 0022/0018-like
+    assert abs(dark_look["warm_sat_mult"] - 1.0) < 0.02, dark_look
+    assert abs(dark_look["cool_sat_mult"] - 0.85) < 0.02, dark_look
+
+    facade_look, _ = build._regime_look(cfg, _mk_regime_arr(0.42, 0.6))      # 0212-like
+    assert facade_look["warm_sat_mult"] >= 1.3, facade_look
+
+    sky_look, _ = build._regime_look(cfg, _mk_regime_arr(0.66, 0.6))         # 0252-like
+    assert sky_look["warm_sat_mult"] < 1.0, sky_look
+    print("ok test_regime_params")
 
 def test_finish_grain_and_size():
     import numpy as np
