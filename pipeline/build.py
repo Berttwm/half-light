@@ -15,15 +15,6 @@ REGIME_KEYS = ("toe_depth", "mid_lift", "warm_sat_mult", "warm_lum_add", "cool_s
 # instead, so golden-but-not-pastel scenes like 0212 are untouched (pastel_s=0 there).
 MID_LIFT_PASTEL_BONUS = 0.015
 
-# ROUND 3e: retuned to 1.4 (the top of the newly-extended [0.38, 1.4] bound). Unlike
-# ROUND 3b/3c, there's no tradeoff here — swept the full range against the real photos:
-# 0212's chroma ratio climbs 0.72->1.04 (target >=0.90 met from coef~1.0 onward, no upper
-# bound given so took the max), 0022/0018 stay flat near-neutral throughout, and 0252's
-# chroma ratio (bottlenecked separately, see the warm_sat_mult pastel term below) still
-# only improves with a higher coefficient, never regresses. Median-L deltas for all four
-# stay within their targets across the whole range. See ROUND 3e report for the sweep.
-GOLDEN_COEF = 1.4
-
 # ROUND 3f (final iteration): the fourth lever — pastel scenes now get a mild POSITIVE
 # warm_sat/pink_sat contribution instead of ROUND 3e's -0.06 (near-neutral) penalty,
 # replacing that term entirely (not stacked on top). One coefficient drives both the
@@ -39,13 +30,18 @@ PASTEL_SAT_COEF = 0.15
 def _clamp01(x):
     return max(0.0, min(1.0, x))
 
+def _clamp(x, lo, hi):
+    return max(lo, min(hi, x))
+
 def _lerp(a, b, t):
     return a + (b - a) * t
 
 def _measure_regime(arr):
     """med_L (median luma), warm_frac (share of pixels in the warm hue band with
-    real saturation) on a 96px thumb of a post-lift array. Shared by run() and
-    calibrate() so both grade identically."""
+    real saturation), warm_chroma (mean S*V == max-min over warm-hue S>0.12 pixels —
+    the closed-loop golden-boost signal, complaint A / WAVE 2: same measurement the
+    A1 throwaway script used to derive target_warm_chroma) on a 96px thumb of a
+    post-lift array. Shared by run() and calibrate() so both grade identically."""
     from PIL import Image
     import numpy as np
     from pipeline import grade
@@ -57,7 +53,10 @@ def _measure_regime(arr):
     S = np.where(maxc > 0, (maxc - minc) / np.maximum(maxc, 1e-6), 0.0)
     hue = grade.hue_deg(a[..., 0], a[..., 1], a[..., 2])
     warm = (hue >= 5) & (hue <= 70) & (S > 0.15)
-    return float(np.median(L)), float(warm.mean()), float(S.mean())
+    warm_chroma_mask = (hue >= 5) & (hue <= 70) & (S > 0.12)
+    chroma = maxc - minc
+    warm_chroma = float(chroma[warm_chroma_mask].mean()) if warm_chroma_mask.any() else 0.0
+    return float(np.median(L)), float(warm.mean()), float(S.mean()), warm_chroma
 
 def _regime_look(cfg, arr):
     """LOOK V3 regime layer: derives per-photo toe/mid/warm-cool LUT params from
@@ -65,7 +64,7 @@ def _regime_look(cfg, arr):
     formula, see task-12-report ROUND 3). Returns (look_dict, log_dict).
     `look_strength` scales the regime *signal* (bright/golden/pastel) before it
     feeds the lerps — at 0 every photo grades at the dark-regime baseline."""
-    med_L, warm_frac, _scene_sat = _measure_regime(arr)
+    med_L, warm_frac, _scene_sat, warm_chroma = _measure_regime(arr)
     lk = cfg["look"]
     ls = lk.get("look_strength", 1.0)
     bright = _clamp01((med_L - 0.15) / 0.30)
@@ -78,17 +77,28 @@ def _regime_look(cfg, arr):
     bright_s = bright * ls
     golden_s = golden_bell * golden_gate * ls
     pastel_s = pastel * golden_gate * ls
+    # WAVE 2 / complaint A: CLOSED-LOOP golden boost, replacing the old open-loop
+    # GOLDEN_COEF*golden_s term. The old formula boosted purely by regime signature
+    # (how bright+warm-hued the scene is) regardless of how vivid its warm areas
+    # already were — over-saturating photos that were already rich (DSCF9170, 9155,
+    # 9292, 9593...). Target-normalization instead, same design as exposure_lift:
+    # measure this photo's own pre-LUT warm-band chroma, compare to
+    # target_warm_chroma (the level the client's own edits converge to, derived from
+    # his DSCF0212 edit — see task-12-report WAVE 2 A1), and boost only the deficit.
+    # Floor -0.12 (never a heavy cut for already-rich photos), ceiling 1.0 (same
+    # reach as the old coefficient's realistic range). The pastel term is untouched
+    # — it's a separate mechanism (ROUND 3f's skylight-pink lever), out of this
+    # wave's scope.
+    deficit = _clamp(lk["target_warm_chroma"] / max(warm_chroma, 1e-4) - 1, -0.12, 1.0)
 
     params = {
         "toe_depth": round(_lerp(lk["toe_dark"], lk["toe_bright"], bright_s), 3),
         "mid_lift": round(_lerp(0.010, 0.045, bright_s) + MID_LIFT_PASTEL_BONUS * pastel_s, 3),
-        # ROUND 3f: pastel term flipped from ROUND 3e's -0.06 (near-neutral) to a mild
-        # POSITIVE PASTEL_SAT_COEF*pastel_s — the client wants the skylight pinks pushed
-        # one more notch, not just "not washed out". Same coefficient drives the new
-        # pink-band boost below (pink_sat_mult), since both are "how much pastel-regime
-        # push" — just gated to different hues.
-        "warm_sat_mult": round(1 + GOLDEN_COEF * golden_s + PASTEL_SAT_COEF * pastel_s, 3),
-        "warm_lum_add": round(0.09 * golden_s + 0.07 * pastel_s, 3),
+        "warm_sat_mult": round(1 + deficit * golden_s + PASTEL_SAT_COEF * pastel_s, 3),
+        # muted scenes (deficit > 0) get the luminance glow scaled by how muted they
+        # are; scenes already at/above target (deficit clamped negative) get none —
+        # "never add glow to an already-rich photo" (A3).
+        "warm_lum_add": round(0.09 * golden_s * _clamp01(deficit) + 0.07 * pastel_s, 3),
         "cool_sat_mult": round(_lerp(0.85, 0.96, bright_s), 3),
         "shoulder": round(_lerp(0.80, 0.72, bright_s), 3),
         # ROUND 3f: narrow magenta/pink bell (grade.py), pastel-regime only — DSCF0252's
@@ -98,7 +108,8 @@ def _regime_look(cfg, arr):
     }
     look = dict(lk, **params)
     regime_log = {"med": round(med_L, 3), "bright": round(bright, 3),
-                  "golden": round(golden_bell * golden_gate, 3), "pastel": round(pastel, 3)}
+                  "golden": round(golden_bell * golden_gate, 3), "pastel": round(pastel, 3),
+                  "warm_chroma": round(warm_chroma, 3), "deficit": round(deficit, 3)}
     return look, regime_log
 
 def load_config(path=None):

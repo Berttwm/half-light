@@ -196,13 +196,16 @@ def test_look_lut_vibrance_self_limits():
     assert muted_ratio > saturated_ratio > 1.0          # self-limiting: muted warm entry gains more than saturated one
     print("ok test_look_lut_vibrance_self_limits")
 
-def _mk_regime_arr(L, warm_frac):
+def _mk_regime_arr(L, warm_frac, warm_s=0.5):
     """Synthetic 100x100 array with an exact median luminance L: every pixel
     shares that same weighted luma, so mixing a warm-hued fraction with a
-    perfectly gray fraction can't shift the median off target."""
+    perfectly gray fraction can't shift the median off target. warm_s controls
+    the warm pixels' own HSV saturation (hence their measured warm chroma) —
+    WAVE 2 addition, needed to test the closed-loop golden boost's muted-vs-
+    vivid distinction (default 0.5 keeps every pre-WAVE-2 call site identical)."""
     import colorsys
     import numpy as np
-    r, g, b = colorsys.hsv_to_rgb(32 / 360, 0.5, 1.0)          # hue 32deg, S 0.5 (bell peak)
+    r, g, b = colorsys.hsv_to_rgb(32 / 360, warm_s, 1.0)        # hue 32deg (bell peak)
     k = L / (0.2126 * r + 0.7152 * g + 0.0722 * b)              # scale preserves hue & S, hits L exactly
     warm = np.array([r * k, g * k, b * k], np.float32)
     n = 100 * 100
@@ -212,26 +215,35 @@ def _mk_regime_arr(L, warm_frac):
 
 def test_regime_params():
     from pipeline import build
-    cfg = {"look": {"toe_dark": 0.008, "toe_bright": 0.045, "look_strength": 1.0}}
+    cfg = {"look": {"toe_dark": 0.008, "toe_bright": 0.045, "look_strength": 1.0,
+                     "target_warm_chroma": 0.30}}
 
     dark_look, _ = build._regime_look(cfg, _mk_regime_arr(0.06, 0.05))       # 0022/0018-like
     assert abs(dark_look["warm_sat_mult"] - 1.0) < 0.02, dark_look
     assert abs(dark_look["cool_sat_mult"] - 0.85) < 0.02, dark_look
-    assert abs(dark_look["pink_sat_mult"] - 1.0) < 0.02, dark_look          # ROUND 3f: no pastel signal, no pink push
+    assert abs(dark_look["pink_sat_mult"] - 1.0) < 0.02, dark_look          # no pastel signal, no pink push
 
-    facade_look, _ = build._regime_look(cfg, _mk_regime_arr(0.42, 0.6))      # 0212-like
-    assert facade_look["warm_sat_mult"] >= 1.3, facade_look
+    # WAVE 2 / complaint A — THE key new invariant (the client's literal ask): the old
+    # open-loop formula boosted purely by regime signature (bright + warm-hued), so a
+    # facade-like scene always got the same big multiplier regardless of how vivid its
+    # warm areas already were — that's what over-saturated DSCF9170/9155/9292/9593 etc.
+    # Same regime signature (med .42 = golden_bell peak, warm_frac .6 = gate maxed) but
+    # differing only in the warm pixels' own chroma, split into two cases:
+    muted_look, muted_log = build._regime_look(cfg, _mk_regime_arr(0.42, 0.6, warm_s=0.3))
+    assert muted_log["warm_chroma"] < cfg["look"]["target_warm_chroma"], muted_log
+    assert muted_look["warm_sat_mult"] >= 1.3, muted_look        # muted: boosted clearly > 1
+    assert muted_look["warm_lum_add"] > 0, muted_look            # muted: gets the luminance glow
 
-    # ROUND 3e: pastel-regime design intent changed from "desaturate" to "lift luminance,
-    # KEEP chroma" (the old -0.28 pastel term was washing DSCF0252 out). ROUND 3f pushes
-    # it further still (mild POSITIVE pastel contribution to warm_sat_mult AND the new
-    # pink_sat_mult) — at the current coefficients this synthetic point's warm_sat_mult
-    # (golden_bell contribution + pastel contribution, both nonzero here) can legitimately
-    # land in facade-strength territory too, so the old "< 1.3" ceiling is no longer a
-    # meaningful split; the invariant that matters is simply "clearly boosted, not neutral".
+    vivid_look, vivid_log = build._regime_look(cfg, _mk_regime_arr(0.42, 0.6, warm_s=0.75))
+    assert vivid_log["warm_chroma"] >= cfg["look"]["target_warm_chroma"], vivid_log
+    assert vivid_look["warm_sat_mult"] <= 1.02, vivid_look       # already-vivid: no pile-on
+    assert vivid_look["warm_lum_add"] == 0, vivid_look           # already-rich: no added glow
+
+    # ROUND 3e/3f: pastel-regime design intent is "lift luminance, KEEP chroma" — the
+    # pastel term (untouched by WAVE 2, out of complaint A's scope) still dominates here.
     sky_look, _ = build._regime_look(cfg, _mk_regime_arr(0.66, 0.6))         # 0252-like
     assert sky_look["warm_sat_mult"] > 1.0, sky_look
-    assert sky_look["pink_sat_mult"] > 1.0, sky_look                        # ROUND 3f: pink band also pushed
+    assert sky_look["pink_sat_mult"] > 1.0, sky_look
     print("ok test_regime_params")
 
 def test_finish_grain_and_size():
@@ -295,7 +307,7 @@ def test_compose_rules():
     photos = [
         _mk(1, "2026.05.01", 3, 2, 0, .3, .10),   # oldest landscape warm
         _mk(2, "2026.05.02", 3, 2, 0, .3, .30),
-        _mk(3, "2026.05.03", 3, 2, 0, .3, .40),   # 1+2+3 = warm landscape run -> strip
+        _mk(3, "2026.05.03", 3, 2, 0, .3, .40),   # 1+2+3 = warm landscape run -> falls through to solos (strip removed, WAVE 2)
         _mk(4, "2026.05.04", 2, 3, 0, .3, .50),
         _mk(5, "2026.05.05", 2, 3, 0, .3, .60),   # 4+5 adjacent warm portraits -> diptych
         _mk(6, "2026.05.06", 2, 3, 2, .8, .35),   # cool portrait, highest sat -> iris solo
@@ -306,7 +318,10 @@ def test_compose_rules():
     reel = out["reel"]
     assert reel[0] == {"type": "solo", "ids": ["DSCF0008"], "mask": "letterbox"}      # hero
     assert reel[-1] == {"type": "solo", "ids": ["DSCF0007"], "mask": None}            # darkest closer
-    assert {"type": "strip", "ids": ["DSCF0001", "DSCF0002", "DSCF0003"], "mask": None} in reel
+    assert not any(s["type"] == "strip" for s in reel)                               # strip scene type removed entirely
+    assert {"type": "solo", "ids": ["DSCF0001"], "mask": None} in reel               # landscape run -> individual solos
+    assert {"type": "solo", "ids": ["DSCF0002"], "mask": None} in reel
+    assert {"type": "solo", "ids": ["DSCF0003"], "mask": None} in reel
     assert {"type": "diptych", "ids": ["DSCF0004", "DSCF0005"], "mask": None} in reel
     assert {"type": "solo", "ids": ["DSCF0006"], "mask": "iris"} in reel
     assert out["sheet"][0] == "DSCF0007"                     # band 0, darkest first

@@ -12,14 +12,6 @@ def compose(photos, cfg, overrides):
     rest.sort(key=lambda p: (p["date"], p["frame"]))          # capture order for the middle
 
     used, units = set(), []
-    # one strip: first run of >=3 consecutive same-band landscapes
-    for i in range(len(rest) - 2):
-        trio = rest[i: i + 3]
-        if all(p["w"] > p["h"] for p in trio) and len({p["band"] for p in trio}) == 1 \
-           and not any(p["id"] in used for p in trio):
-            units.append((trio[0], {"type": "strip", "ids": [p["id"] for p in trio], "mask": None}))
-            used.update(p["id"] for p in trio)
-            break
     # up to two diptychs: unused same-band portraits paired by nearest hue (adjacency not required)
     avail = [p for p in rest if p["id"] not in used and p["h"] > p["w"]]
     pairs = 0

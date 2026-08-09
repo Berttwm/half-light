@@ -48,9 +48,6 @@
   .solo .win { height: min(66vh, calc(78vw * var(--ir))); aspect-ratio: calc(1 / var(--ir)); }
   .pair { position: relative; display: flex; gap: 2vw; align-items: center; }
   .pair .neg .win { height: min(60vh, calc(34vw * var(--ir))); aspect-ratio: calc(1 / var(--ir)); }
-  .frames { position: relative; display: flex; gap: 2vw; align-items: center; flex-shrink: 0; }
-  .frames .neg .win { height: 54vh; aspect-ratio: calc(1 / var(--ir)); }
-
   .txtscene .txt { text-align: center; max-width: 94vw; position: relative; }
   .txtscene h1 { font-size: clamp(34px, 6vw, 58px); font-weight: normal; letter-spacing: .3em; }
   .txtscene .line { font-family: var(--serif); font-style: italic; font-size: clamp(15px, 1.9vw, 24px); letter-spacing: .05em; color: var(--ink); line-height: 1.7; margin-top: 34px; white-space: nowrap; }
@@ -70,8 +67,6 @@
     .solo .win { height: min(56vh, calc(88vw * var(--ir))); }
     .pair { gap: 8px; }
     .pair .neg .win { height: min(50vh, calc(38vw * var(--ir))); }
-    .frames { flex-direction: column; gap: 10px; }
-    .frames .neg .win { height: auto; width: 68vw; }
     .txtscene .line { white-space: normal; }
     #rail { right: 8px; } #counter { right: 20px; }
   }
@@ -92,7 +87,7 @@
 <div id="counter"></div>
 <div class="hint mono" id="hint">SCROLL TO BEGIN THE PROJECTION</div>
 <div id="spacer"></div>
-<script src="assets/data.b955ed9d3f.js"></script>
+<script src="assets/data.d1423a8be5.js"></script>
 <script>
 (() => {
   const byId = window.PHOTOS;
@@ -150,9 +145,6 @@
       s.className = 'slide diptych';
       s.innerHTML = `<div class="fill" style="background-image:url(${ps[0].latent})"></div><div class="mover"><div class="pair">` +
         ps.map(p => neg(p, false)).join('') + `</div></div>`;
-    } else if (sc.type === 'strip') {
-      s.className = 'slide strip';
-      s.innerHTML = `<div class="mover"><div class="frames">` + ps.map(p => neg(p, false)).join('') + `</div></div>`;
     }
     screen.appendChild(s);
     sc.imgs = [...s.querySelectorAll('.win img')];
@@ -195,7 +187,7 @@
   function layout() { spacer.style.height = (SCENES.length * SEG + 0.7) * innerHeight + 'px'; }
 
   function paint(t) {
-    const vh = innerHeight, narrow = innerWidth < 700;
+    const vh = innerHeight;
     if (t > 0.15) hint.classList.add('gone'); else hint.classList.remove('gone');
     els.forEach((s, i) => {
       const sc = SCENES[i];
@@ -205,7 +197,7 @@
       if (ad > 1.1) { s.style.visibility = 'hidden'; s.style.opacity = 0; return; }
       s.style.visibility = 'visible';
       // Recipe 4 dip-to-black: photos hand off through the scrim, hardly overlapping
-      s.style.opacity = clamp(1 - ad * (sc.type === 'strip' ? 1.3 : 2.2), 0, 1);
+      s.style.opacity = clamp(1 - ad * 2.2, 0, 1);
       const env = ease(clamp(1 - Math.max(0, ad - 0.1) * 1.6, 0, 1));   // eased scene envelope (Recipe 5)
       const mover = s.querySelector('.mover');
 
@@ -227,23 +219,9 @@
 
       // Recipe 4: continuous micro-zoom, 1.0 <-> 1.06, linear on lerped progress. No rotation, no filters.
       const zoom = 1 + 0.06 * clamp(ad * 1.4, 0, 1);
-      if (sc.type === 'strip') {
-        mover.style.transform = narrow ? `translateY(${d * -vh * 0.12}px)`
-          : `translateX(${d * -mover.firstElementChild.offsetWidth * 1.05}px)`;
-        // the gate: strip frames light up by their OWN position — opacity dim (preserves the grade), not brightness
-        sc.imgs.forEach(img => {
-          const b = img.getBoundingClientRect();
-          const off = narrow ? Math.abs((b.top + b.bottom) / 2 - vh / 2) / vh
-                             : Math.abs((b.left + b.right) / 2 - innerWidth / 2) / innerWidth;
-          const dv = ease(clamp(1 - Math.max(0, off - 0.17) * 4.5, 0, 1));
-          img.style.opacity = .25 + .75 * dv;
-          if (!RM) img.style.transform = `translateY(${d * -img.dataset.plx * 0.6}px)`;
-        });
-      } else {
-        mover.style.transform = `translateY(${d * -vh * 0.06}px) scale(${zoom})`;
-        // Recipe 2: inner parallax — the photo drifts inside its overflow-hidden window
-        sc.imgs.forEach(img => { if (!RM) img.style.transform = `translateY(${d * -img.dataset.plx}px)`; img.style.opacity = 1; });
-      }
+      mover.style.transform = `translateY(${d * -vh * 0.06}px) scale(${zoom})`;
+      // Recipe 2: inner parallax — the photo drifts inside its overflow-hidden window
+      sc.imgs.forEach(img => { if (!RM) img.style.transform = `translateY(${d * -img.dataset.plx}px)`; img.style.opacity = 1; });
 
       // the two clip-mask set pieces (Recipe 3 / Gradogna: position, opacity, clip masks)
       if (sc.mask === 'letterbox') {
