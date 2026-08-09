@@ -4,10 +4,12 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # ponytail: calibration is a one-shot human-in-the-loop dev tool, not a shipped
 # feature — no tests added for it by design (see task-12 brief step 1).
+# LOOK V2 (round 2): axis is exposure/toe/adaptive-sat/shoulder strength, not
+# the old saturation/tone_mul/grain axis — client rejected the film-fade look.
 VARIANTS = {
-    "A-subtle": {"saturation": 0.90, "tone_mul": 0.7, "fade_black": 0.04, "grain_base": 3.0},
-    "B-default": {"saturation": 0.95, "tone_mul": 1.0, "fade_black": 0.05, "grain_base": 4.0},
-    "C-bold": {"saturation": 1.02, "tone_mul": 1.5, "fade_black": 0.06, "grain_base": 5.0},
+    "L-soft":   {"exposure_target": 0.45, "toe_depth": 0.02,  "sat_adaptive_max": 0.10, "shoulder": 0.75},
+    "L-med":    {"exposure_target": 0.47, "toe_depth": 0.03,  "sat_adaptive_max": 0.14, "shoulder": 0.72},
+    "L-strong": {"exposure_target": 0.50, "toe_depth": 0.045, "sat_adaptive_max": 0.20, "shoulder": 0.68},
 }
 
 def load_config(path=None):
@@ -34,12 +36,23 @@ def _sha1_file(path):
             h.update(chunk)
     return h.hexdigest()[:12]
 
+# client's own reference grades exist for these — always in the calibration sheet
+FORCED_CALIBRATION_STEMS = ["DSCF0018", "DSCF0022", "DSCF0212", "DSCF0252"]
+
 def select_calibration_stems(manifest):
-    """8 distinct stems spread across lum/sat/orientation extremes, deduped by
-    walking down each ranking so overlaps (e.g. a photo that's both darkest
-    and most saturated) don't shrink the set below 8."""
+    """4 forced client-reference stems + 4 more spread across lum/sat/orientation
+    extremes, deduped by walking down each ranking so overlaps don't shrink the
+    set below 8."""
     entries = list(manifest.values())
     picked = set()
+    picks = []
+    for stem in FORCED_CALIBRATION_STEMS:
+        e = manifest.get(stem)
+        if e is None or stem in picked:
+            continue
+        picked.add(stem)
+        picks.append((stem, "client reference (lum=%.3f sat=%.3f %dx%d)" %
+                      (e["lum"], e["sat"], e["w"], e["h"])))
     def take(ranked, label, n):
         got = []
         for rank, e in enumerate(ranked, 1):
@@ -51,20 +64,22 @@ def select_calibration_stems(manifest):
             if len(got) == n:
                 break
         return got
-    picks = []
-    picks += take(sorted(entries, key=lambda e: (e["lum"], e["id"])), "darkest", 2)
-    picks += take(sorted(entries, key=lambda e: (-e["lum"], e["id"])), "brightest", 2)
-    picks += take(sorted(entries, key=lambda e: (-e["sat"], e["id"])), "most saturated", 2)
-    picks += take(sorted([e for e in entries if e["h"] > e["w"]], key=lambda e: e["id"]), "portrait", 2)
+    picks += take(sorted(entries, key=lambda e: (e["lum"], e["id"])), "darkest", 1)
+    picks += take(sorted(entries, key=lambda e: (-e["sat"], e["id"])), "most saturated", 1)
+    picks += take(sorted([e for e in entries if e["h"] > e["w"]], key=lambda e: e["id"]), "portrait", 1)
+    picks += take(sorted(entries, key=lambda e: (-e["lum"], e["id"])), "brightest", 1)
     return picks
 
-def _variant_look(base_look, variant):
-    look = dict(base_look)
-    look["saturation"] = variant["saturation"]
-    look["fade_black"] = variant["fade_black"]
-    look["shadow_tone"] = [v * variant["tone_mul"] for v in base_look["shadow_tone"]]
-    look["highlight_tone"] = [v * variant["tone_mul"] for v in base_look["highlight_tone"]]
-    return look
+def _sat_bucket(arr):
+    """4-level adaptive-saturation bucket (0-3) from mean HSV S of a 64px thumb
+    of the current (post exposure-lift) array. Shared by run() and calibrate()
+    so both apply identical bucketing."""
+    from PIL import Image
+    import numpy as np
+    small = Image.fromarray((np.clip(arr, 0, 1) * 255).astype("uint8"))
+    small.thumbnail((64, 64))
+    s_mean = float(np.asarray(small.convert("HSV"), dtype=np.float32)[..., 1].mean()) / 255.0
+    return min(3, int(s_mean / 0.12))
 
 def _calibrate_html(picks, variants):
     cols = ["sooc"] + list(variants)
@@ -101,7 +116,6 @@ def calibrate(cfg, root=ROOT):
     cal = os.path.join(work, "cal")
     for sub in ["sooc"] + list(VARIANTS):
         os.makedirs(os.path.join(cal, sub), exist_ok=True)
-    luts = {name: grade.build_look_lut(_variant_look(cfg["look"], v)) for name, v in VARIANTS.items()}
 
     for stem, reason in picks:
         entry = sources[stem]
@@ -112,16 +126,22 @@ def calibrate(cfg, root=ROOT):
         sooc.thumbnail((1024, 1024), Image.LANCZOS)
         sooc.save(os.path.join(cal, "sooc", stem + ".webp"), format="WEBP", quality=85, method=6)
 
-        arr = np.asarray(img).astype(np.float32) / 255.0
-        arr, _wb = grade.white_balance(arr, cfg["wb"])
-        if not overrides.get(stem, {}).get("no_lift"):
-            arr, _gamma = grade.exposure_lift(arr, cfg["exposure"])
-        base = Image.fromarray((arr * 255).astype("uint8"))
+        base_arr = np.asarray(img).astype(np.float32) / 255.0
+        base_arr, _wb = grade.white_balance(base_arr, cfg["wb"])
         seed = int(hashlib.sha1(stem.encode()).hexdigest()[:8], 16)
 
+        # each variant carries its own exposure_target, so lift (and the
+        # sat bucket it feeds) is recomputed per variant, not shared.
         for name, v in VARIANTS.items():
-            graded = base.filter(luts[name])
-            fcfg = dict(cfg["finish"], long_edge=1024, grain_base=v["grain_base"])
+            arr = base_arr
+            if not overrides.get(stem, {}).get("no_lift"):
+                ecfg = {**cfg["exposure"], "target_median": v["exposure_target"]}
+                arr, _gamma = grade.exposure_lift(arr, ecfg)
+            b = _sat_bucket(arr)                                   # same bucketing as the real build
+            look = {**cfg["look"], "toe_depth": v["toe_depth"], "shoulder": v["shoulder"],
+                    "sat_boost": v["sat_adaptive_max"] * b / 3}
+            graded = Image.fromarray((arr * 255).astype("uint8")).filter(grade.build_look_lut(look))
+            fcfg = dict(cfg["finish"], long_edge=1024, grain_base=0.0)   # client formula: no grain
             graded = grade.finish(graded, fcfg, seed)
             graded.save(os.path.join(cal, name, stem + ".webp"), format="WEBP", quality=85, method=6)
         print("  calibrated", stem, "-", reason)
@@ -143,7 +163,7 @@ def run(cfg, root=ROOT, force=False):
     manifest = json.load(open(manifest_p)) if os.path.exists(manifest_p) else {}
     overrides = json.load(open(os.path.join(root, "overrides.json"), encoding="utf-8"))
     entries = scan_sources(cfg["source_dir"])
-    lut = grade.build_look_lut(cfg["look"])
+    luts = {}   # one LUT per adaptive-sat bucket, built lazily and cached for the run
     log_lines, errors = [], 0
     for e in entries:
         h = _sha1_file(e["path"])
@@ -159,7 +179,11 @@ def run(cfg, root=ROOT, force=False):
                 arr, gamma = grade.exposure_lift(arr, cfg["exposure"])
             else:
                 gamma = 1.0
-            img = Image.fromarray((arr * 255).astype("uint8")).filter(lut)
+            sat_bucket = _sat_bucket(arr)
+            if sat_bucket not in luts:
+                sat_boost = cfg["look"].get("sat_adaptive_max", 0.0) * sat_bucket / 3
+                luts[sat_bucket] = grade.build_look_lut({**cfg["look"], "sat_boost": sat_boost})
+            img = Image.fromarray((arr * 255).astype("uint8")).filter(luts[sat_bucket])
             seed = int(hashlib.sha1(e["stem"].encode()).hexdigest()[:8], 16)
             img = grade.finish(img, cfg["finish"], seed)
             paths = grade.save_outputs(img, e["stem"], photos_dir, cfg["finish"])
@@ -172,7 +196,8 @@ def run(cfg, root=ROOT, force=False):
             manifest[e["stem"]] = entry
             state[e["stem"]] = h
             log_lines.append({"stem": e["stem"], "action": "graded", "gamma": round(gamma, 3),
-                              "wb": [round(g, 3) for g in wb], "angle": round(angle, 2)})
+                              "wb": [round(g, 3) for g in wb], "angle": round(angle, 2),
+                              "sat_bucket": sat_bucket})
         except Exception as ex:
             errors += 1
             log_lines.append({"stem": e["stem"], "action": "error", "error": str(ex)})

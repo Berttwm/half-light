@@ -20,15 +20,27 @@ def compose(photos, cfg, overrides):
             units.append((trio[0], {"type": "strip", "ids": [p["id"] for p in trio], "mask": None}))
             used.update(p["id"] for p in trio)
             break
-    # up to two diptychs: adjacent same-band portraits
+    # up to two diptychs: unused same-band portraits paired by nearest hue (adjacency not required)
+    avail = [p for p in rest if p["id"] not in used and p["h"] > p["w"]]
     pairs = 0
-    for i in range(len(rest) - 1):
-        a, b = rest[i], rest[i + 1]
-        if pairs < 2 and a["id"] not in used and b["id"] not in used \
-           and a["h"] > a["w"] and b["h"] > b["w"] and a["band"] == b["band"]:
-            units.append((a, {"type": "diptych", "ids": [a["id"], b["id"]], "mask": None}))
-            used.update((a["id"], b["id"]))
-            pairs += 1
+    while pairs < 2 and len(avail) >= 2:
+        best = None
+        for i in range(len(avail)):                            # ponytail: O(n^2) pair search, fine at reel_size~14
+            for j in range(i + 1, len(avail)):
+                a, b = avail[i], avail[j]
+                if a["band"] != b["band"]:
+                    continue
+                d = abs(a["hue"] - b["hue"])                    # ponytail: linear diff, no 360-wrap; circularize if that seam matters
+                if best is None or d < best[0]:
+                    best = (d, a, b)
+        if best is None:
+            break
+        _, a, b = best
+        earlier, later = (a, b) if (a["date"], a["frame"]) <= (b["date"], b["frame"]) else (b, a)
+        units.append((earlier, {"type": "diptych", "ids": [earlier["id"], later["id"]], "mask": None}))
+        used.update((a["id"], b["id"]))
+        avail = [p for p in avail if p["id"] not in (a["id"], b["id"])]
+        pairs += 1
     solos = [p for p in rest if p["id"] not in used]
     units.extend((p, {"type": "solo", "ids": [p["id"]], "mask": None}) for p in solos)
     units.sort(key=lambda u: (u[0]["date"], u[0]["frame"]))

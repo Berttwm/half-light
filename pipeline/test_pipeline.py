@@ -15,7 +15,7 @@ def test_scan_sources():
 def test_load_config():
     cfg = build.load_config()
     assert cfg["title"] == "Half-Light"
-    assert cfg["exposure"]["target_median"] == 0.42
+    assert cfg["exposure"]["target_median"] == 0.47
     assert cfg["reel_size"] == 14
     print("ok test_load_config")
 
@@ -140,6 +140,18 @@ def test_look_lut_fade_and_monotonic():
     assert all(int(grey[i + 8]) >= int(grey[i]) - 1 for i in range(0, 248, 8))   # monotonic tone curve
     print("ok test_look_lut_fade_and_monotonic")
 
+def test_look_lut_toe_darkens_shadows():
+    import numpy as np
+    from PIL import Image
+    from pipeline import grade
+    base = {"fade_black": 0.0, "white_ceiling": 1.0, "shoulder": 0.95, "saturation": 1.0,
+            "highlight_desat": 0.0, "shadow_tone": [0, 0, 0], "highlight_tone": [0, 0, 0]}
+    flat = Image.new("RGB", (4, 4), (20, 20, 20))                              # mid-low shadow, L ~ 0.078
+    out0 = np.asarray(flat.filter(grade.build_look_lut(base))).astype(int)
+    out1 = np.asarray(flat.filter(grade.build_look_lut({**base, "toe_depth": 0.05, "toe_end": 0.25}))).astype(int)
+    assert out1.mean() < out0.mean() - 3            # toe visibly darkens a mid-shadow value vs toe_depth 0
+    print("ok test_look_lut_toe_darkens_shadows")
+
 def test_finish_grain_and_size():
     import numpy as np
     from PIL import Image
@@ -154,6 +166,18 @@ def test_finish_grain_and_size():
     out2 = grade.finish(Image.new("RGB", (1024, 683), (110, 110, 110)), fcfg, seed=42)
     assert np.array_equal(np.asarray(out), np.asarray(out2))    # deterministic per seed
     print("ok test_finish_grain_and_size")
+
+def test_finish_zero_effects_are_noop():
+    import numpy as np
+    from PIL import Image
+    from pipeline import grade
+    fcfg = {"long_edge": 512, "vignette": 0.0, "halation_thr": 0.86, "halation_op": 0.0,
+            "halation_tint": [1.0, 0.55, 0.25], "grain_base": 0.0, "grain_size": 0.9}
+    flat = Image.new("RGB", (1024, 683), (110, 110, 110))
+    out = grade.finish(flat, fcfg, seed=42)
+    center = np.asarray(out)[300:340, 220:280].astype(np.float32)
+    assert center.std() < 0.5                       # grain_base 0 -> zero flat-patch noise
+    print("ok test_finish_zero_effects_are_noop")
 
 def test_save_outputs_atomic_and_verified():
     from PIL import Image
@@ -180,9 +204,9 @@ def test_analyze_bands():
     assert warm["tint"].startswith("#") and 0 <= warm["lum"] <= 1
     print("ok test_analyze_bands")
 
-def _mk(i, date, w, h, band, sat, lum):
+def _mk(i, date, w, h, band, sat, lum, hue=0):
     return {"id": "DSCF%04d" % i, "frame": "%04d" % i, "date": date,
-            "w": w, "h": h, "band": band, "sat": sat, "lum": lum}
+            "w": w, "h": h, "band": band, "sat": sat, "lum": lum, "hue": hue}
 
 def test_compose_rules():
     from pipeline import compose
@@ -208,6 +232,24 @@ def test_compose_rules():
     out2 = compose.compose(photos, {"reel_size": 14}, {"DSCF0006": {"skip": True}})
     assert all("DSCF0006" not in s["ids"] for s in out2["reel"])
     print("ok test_compose_rules")
+
+def test_compose_diptych_hue_pairing_nonadjacent():
+    from pipeline import compose
+    photos = [
+        _mk(1, "2026.05.01", 2, 3, 0, .3, .40, hue=10),    # A
+        _mk(2, "2026.05.02", 2, 3, 0, .3, .45, hue=170),   # B
+        _mk(3, "2026.05.03", 2, 3, 0, .3, .50, hue=12),    # C -> nearest hue to A, non-adjacent
+        _mk(4, "2026.05.04", 2, 3, 0, .3, .55, hue=200),   # D -> nearest remaining, pairs with B
+        _mk(5, "2026.05.05", 3, 2, 0, .3, .05),            # darkest landscape -> closer
+        _mk(6, "2026.05.06", 3, 2, 0, .3, .90),            # newest landscape -> hero
+    ]
+    out = compose.compose(photos, {"reel_size": 14}, {})
+    reel = out["reel"]
+    # adjacency-based pairing would give (1,2)+(3,4); nearest-hue gives these instead
+    assert {"type": "diptych", "ids": ["DSCF0001", "DSCF0003"], "mask": None} in reel
+    assert {"type": "diptych", "ids": ["DSCF0002", "DSCF0004"], "mask": None} in reel
+    assert compose.compose(photos, {"reel_size": 14}, {}) == out               # deterministic
+    print("ok test_compose_diptych_hue_pairing_nonadjacent")
 
 def test_compose_empty_inputs():
     from pipeline import compose

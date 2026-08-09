@@ -118,20 +118,31 @@ def exposure_lift(arr, ecfg):
 
 def build_look_lut(lcfg):
     fb, wc = lcfg["fade_black"], lcfg["white_ceiling"]
-    sat, hd, sh = lcfg["saturation"], lcfg["highlight_desat"], lcfg["shoulder"]
+    sat = lcfg["saturation"] + lcfg.get("sat_boost", 0.0)   # adaptive boost added pre-shaping
+    hd, sh = lcfg["highlight_desat"], lcfg["shoulder"]
+    slope = lcfg.get("shoulder_slope", 0.8)
+    toe_depth, toe_end = lcfg.get("toe_depth", 0.0), lcfg.get("toe_end", 0.25)
     st = np.array(lcfg["shadow_tone"])
     ht = np.array(lcfg["highlight_tone"])
 
-    def f(r, g, b):
-        v = np.array([r, g, b])
-        L = 0.2126 * r + 0.7152 * g + 0.0722 * b
-        v = L + (v - L) * (sat * (1 - hd * L * L))        # sat shaping, desat near white
-        v = v + st * (1 - L) ** 2 + ht * L ** 2           # split tone
-        v = fb + (wc - fb) * v                            # fade floor + ceiling
-        v = np.where(v > sh, sh + (v - sh) * 0.8, v)      # soft shoulder
-        return tuple(np.clip(v, 0, 1))
+    # vectorized grid build (size**3 points at once) — table fed straight to
+    # Color3DLUT, whose numpy-array constructor path expects shape
+    # (size_b, size_g, size_r, channels), i.e. b slowest / r fastest.
+    size = 33
+    coords = np.linspace(0, 1, size)
+    B, G, R = np.meshgrid(coords, coords, coords, indexing="ij")
+    v = np.stack([R, G, B], axis=-1)
+    L = (0.2126 * R + 0.7152 * G + 0.0722 * B)[..., None]
+    v = L + (v - L) * (sat * (1 - hd * L * L))             # sat shaping, desat near white
+    v = v + st * (1 - L) ** 2 + ht * L ** 2                # split tone
+    v = fb + (wc - fb) * v                                 # fade floor + ceiling
+    t = np.clip(L / toe_end, 0, 1)
+    sm = t * t * (3 - 2 * t)                                # smoothstep(0, toe_end, L)
+    v = v - toe_depth * (1 - sm) ** 2                       # toe: smooth shadow darkening, 0 when toe_depth=0
+    v = np.where(v > sh, sh + (v - sh) * slope, v)          # soft shoulder
+    table = np.clip(v, 0, 1)
 
-    return ImageFilter.Color3DLUT.generate(33, f)
+    return ImageFilter.Color3DLUT(size, table)
 
 def finish(img, fcfg, seed):
     import cv2
@@ -139,20 +150,24 @@ def finish(img, fcfg, seed):
     img.thumbnail((fcfg["long_edge"], fcfg["long_edge"]), Image.LANCZOS)
     a = np.asarray(img).astype(np.float32) / 255.0
     h, w = a.shape[:2]
-    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
-    r2 = ((xx - w / 2) / (w / 2)) ** 2 + ((yy - h / 2) / (h / 2)) ** 2
-    a *= (1 - fcfg["vignette"] * np.clip(r2, 0, 1)[..., None] ** 1.25)          # vignette
-    L = a @ np.array([0.2126, 0.7152, 0.0722], np.float32)
-    mask = np.clip((L - fcfg["halation_thr"]) / (1 - fcfg["halation_thr"]), 0, 1)
-    glow = cv2.GaussianBlur(a * mask[..., None], (0, 0), max(2.0, 0.015 * max(w, h)))
-    tint = np.array(fcfg["halation_tint"], np.float32)
-    a = 1 - (1 - a) * (1 - glow * tint * fcfg["halation_op"])                    # screen blend
-    rng = np.random.default_rng(seed)
-    noise = cv2.GaussianBlur(rng.standard_normal((h, w)).astype(np.float32),
-                             (0, 0), fcfg["grain_size"])
-    noise /= max(noise.std(), 1e-6)
-    amp = (fcfg["grain_base"] / 255.0) * (0.35 + 0.65 * np.sin(np.pi * np.clip(L, 0, 1)) ** 0.9)
-    a += (noise * amp)[..., None]                                                # luma-only grain, dead last
+    if fcfg["vignette"] > 0:
+        yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+        r2 = ((xx - w / 2) / (w / 2)) ** 2 + ((yy - h / 2) / (h / 2)) ** 2
+        a *= (1 - fcfg["vignette"] * np.clip(r2, 0, 1)[..., None] ** 1.25)      # vignette
+    if fcfg["halation_op"] > 0:
+        L = a @ np.array([0.2126, 0.7152, 0.0722], np.float32)
+        mask = np.clip((L - fcfg["halation_thr"]) / (1 - fcfg["halation_thr"]), 0, 1)
+        glow = cv2.GaussianBlur(a * mask[..., None], (0, 0), max(2.0, 0.015 * max(w, h)))
+        tint = np.array(fcfg["halation_tint"], np.float32)
+        a = 1 - (1 - a) * (1 - glow * tint * fcfg["halation_op"])                # screen blend
+    if fcfg["grain_base"] > 0:
+        L = a @ np.array([0.2126, 0.7152, 0.0722], np.float32)
+        rng = np.random.default_rng(seed)
+        noise = cv2.GaussianBlur(rng.standard_normal((h, w)).astype(np.float32),
+                                 (0, 0), fcfg["grain_size"])
+        noise /= max(noise.std(), 1e-6)
+        amp = (fcfg["grain_base"] / 255.0) * (0.35 + 0.65 * np.sin(np.pi * np.clip(L, 0, 1)) ** 0.9)
+        a += (noise * amp)[..., None]                                            # luma-only grain, dead last
     return Image.fromarray((np.clip(a, 0, 1) * 255).astype(np.uint8))
 
 def _atomic_save(img, path, **kw):
