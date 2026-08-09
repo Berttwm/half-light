@@ -260,8 +260,14 @@ def test_build_end_to_end_and_idempotent():
 
 def test_cli_entry_importable():
     import subprocess, sys as s
-    with tempfile.TemporaryDirectory() as empty:
-        r = subprocess.run([s.executable, os.path.join("pipeline", "build.py"), "--source", empty],
+    with tempfile.TemporaryDirectory() as src, tempfile.TemporaryDirectory() as scratch:
+        os.makedirs(os.path.join(scratch, "site", "assets"))
+        for page in ("index.html", "contact.html"):
+            with open(os.path.join(scratch, "site", page), "w") as f:
+                f.write('<script src="assets/data.dev.js"></script>')
+        with open(os.path.join(scratch, "overrides.json"), "w") as f:
+            f.write("{}")
+        r = subprocess.run([s.executable, os.path.join("pipeline", "build.py"), "--source", src, "--root", scratch],
                            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=120)
     assert r.returncode == 0, r.stdout.decode()[-500:]

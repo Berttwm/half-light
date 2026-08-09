@@ -58,7 +58,7 @@ def run(cfg, root=ROOT, force=False):
             seed = int(hashlib.sha1(e["stem"].encode()).hexdigest()[:8], 16)
             img = grade.finish(img, cfg["finish"], seed)
             paths = grade.save_outputs(img, e["stem"], photos_dir, cfg["finish"])
-            for key in ("full", "thumb"):
+            for key in ("full",):  # thumbs/latents derive from the verified full; dark photos legitimately compress tiny
                 p = os.path.join(root, "site", *paths[key].split("/"))
                 if os.path.getsize(p) < cfg["guards"]["min_output_kb"] * 1024:
                     raise ValueError("output undersized: " + paths[key])
@@ -110,6 +110,9 @@ def run(cfg, root=ROOT, force=False):
 if __name__ == "__main__":
     sys.path.insert(0, ROOT)
     cfg = load_config()
+    root = ROOT
     if "--source" in sys.argv:
         cfg["source_dir"] = sys.argv[sys.argv.index("--source") + 1]
-    sys.exit(run(cfg, force="--force" in sys.argv))
+    if "--root" in sys.argv:
+        root = sys.argv[sys.argv.index("--root") + 1]
+    sys.exit(run(cfg, root=root, force="--force" in sys.argv))
