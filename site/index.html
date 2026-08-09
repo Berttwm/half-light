@@ -83,7 +83,7 @@
 <div id="glowB"></div>
 <div id="dust"></div>
 <nav>
-  <div class="title">Half-Light</div>
+  <div class="title" id="navTitle"></div>
   <a href="contact.html">CONTACT&nbsp;SHEET&nbsp;&rarr;</a>
 </nav>
 <div id="screen"></div>
@@ -98,13 +98,15 @@
   const byId = window.PHOTOS;
   const G = '#131313';
   const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const TITLE = window.META.title;                  // pseudonym, single source — a config.json swap propagates everywhere
+  document.getElementById('navTitle').textContent = TITLE;
 
   // ONE transition language for the reel (crossfade through black + continuous micro-zoom + inner parallax),
   // with exactly two clip-mask set pieces: the letterbox open on the hero, the iris on the mirror shot.
   // Scenes come from the composer (window.SCENES), bookended by data-driven intro/outro text cards.
   const SCENES = [
     { type: 'text', tint: G, scatter: true,
-      html: `<h1>${window.META.title.toUpperCase()}</h1><p class="line">${window.META.intro_line}</p>` },
+      html: `<h1>${TITLE.toUpperCase()}</h1><p class="line">${window.META.intro_line}</p>` },
     ...window.SCENES.map(s => ({ ...s })),
     { type: 'text', tint: G,
       html: '<p class="line">the roll continues</p><div class="mono" style="margin-top:22px">NEW FRAMES ARE DEVELOPED AS THEY ARE TAKEN</div>' },
@@ -117,7 +119,7 @@
   const neg = (p, full) => {
     const n = p.frame.replace('No. ', '');
     const edge = full
-      ? `<span>HALF-LIGHT 400</span><span>${n}A&ensp;&middot;&ensp;${p.date}</span>`
+      ? `<span>${TITLE.toUpperCase()} 400</span><span>${n}A&ensp;&middot;&ensp;${p.date}</span>`
       : `<span>${n}A</span><span>${p.date}</span>`;
     const plx = 32 + (gi++ * 13) % 26;               // Recipe 2: per-image parallax depth 32-58px
     // lazy-loaded: no src yet — data-src is promoted in paint() once the scene nears view; the

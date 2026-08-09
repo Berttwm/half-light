@@ -1,1 +1,0 @@
-window.PHOTOS={};window.SCENES=[];window.SHEET=[];window.META={"title": "Half-Light", "intro_line": "the inner machinations of a photographic mind are an enigma"};
