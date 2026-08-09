@@ -145,10 +145,10 @@
       }
     } else if (sc.type === 'solo') {
       s.className = 'slide solo';
-      s.innerHTML = `<div class="fill" style="background-image:url(${ps[0].full})"></div><div class="mover">${neg(ps[0], true)}</div>`;
+      s.innerHTML = `<div class="fill" style="background-image:url(${ps[0].latent})"></div><div class="mover">${neg(ps[0], true)}</div>`;
     } else if (sc.type === 'diptych') {
       s.className = 'slide diptych';
-      s.innerHTML = `<div class="fill" style="background-image:url(${ps[0].full})"></div><div class="mover"><div class="pair">` +
+      s.innerHTML = `<div class="fill" style="background-image:url(${ps[0].latent})"></div><div class="mover"><div class="pair">` +
         ps.map(p => neg(p, false)).join('') + `</div></div>`;
     } else if (sc.type === 'strip') {
       s.className = 'slide strip';

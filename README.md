@@ -37,7 +37,10 @@ A pseudonymous photo showcase built with a deterministic composition pipeline an
    - **Build output directory:** `site`
    - Click **Save and deploy**
 
-5. **Optional:** Add a custom domain in the Pages project settings.
+5. **After the first deploy, set the social-preview image:**
+   Edit `site/index.html` and `site/contact.html` and change the `og:image` tags from `photos/og.jpg` to `https://<your-project>.pages.dev/photos/og.jpg` (or your custom domain). Relative og:image URLs are ignored by most social scrapers.
+
+6. **Optional:** Add a custom domain in the Pages project settings.
 
 After setup, every `SYNC` push automatically triggers a Cloudflare deployment (about 1 minute).
 
