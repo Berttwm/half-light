@@ -108,6 +108,7 @@ def run(cfg, root=ROOT, force=False):
     return 0
 
 if __name__ == "__main__":
+    sys.path.insert(0, ROOT)
     cfg = load_config()
     if "--source" in sys.argv:
         cfg["source_dir"] = sys.argv[sys.argv.index("--source") + 1]

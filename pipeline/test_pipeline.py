@@ -258,6 +258,15 @@ def test_build_end_to_end_and_idempotent():
         assert log.count('"skipped"') == 2
     print("ok test_build_end_to_end_and_idempotent")
 
+def test_cli_entry_importable():
+    import subprocess, sys as s
+    with tempfile.TemporaryDirectory() as empty:
+        r = subprocess.run([s.executable, os.path.join("pipeline", "build.py"), "--source", empty],
+                           cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=120)
+    assert r.returncode == 0, r.stdout.decode()[-500:]
+    print("ok test_cli_entry_importable")
+
 def main():
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

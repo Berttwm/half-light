@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Contact Sheet</title>
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<header>
+  <div class="title" id="title"></div>
+  <a href="index.html">&larr;&nbsp;PROJECTION&nbsp;ROOM</a>
+</header>
+<div id="rolls"></div>
+<div class="lightbox" id="lb"><img id="lbimg" alt=""><div class="meta" id="lbmeta"></div></div>
+<script src="assets/data.e3fae40631.js"></script>
+<script>
+  // pre-sorted band->lum by the composer; no client-side sort here.
+  const photos = window.SHEET.map(id => window.PHOTOS[id]);
+  const TITLE = window.META.title.toUpperCase();
+  document.getElementById('title').innerHTML = TITLE + '&nbsp;&nbsp;—&nbsp;&nbsp;ARCHIVE';
+
+  const byId = {};
+  photos.forEach(p => { byId[p.id] = p; });
+
+  const holder = document.getElementById('rolls');
+  const sec = document.createElement('section');
+  sec.className = 'roll';
+  sec.innerHTML = '<h2>THE SHEET — EMBER TO ICE, DARK TO LIGHT</h2><div class="strip">' + photos.map(p =>
+    '<div class="frame" tabindex="0" data-id="' + p.id + '">' +
+    '<div class="edge">' + p.frame + 'A &middot; ' + TITLE + ' 400</div>' +
+    '<img src="' + p.thumb + '" loading="lazy" style="background:#0b0b0b url(' + p.latent + ') center/cover">' +
+    '<div class="date">' + p.date + '</div></div>').join('') + '</div>';
+  holder.appendChild(sec);
+
+  const lb = document.getElementById('lb');
+  const lbimg = document.getElementById('lbimg');
+  const lbmeta = document.getElementById('lbmeta');
+
+  function openLightbox(p) {
+    lbimg.src = p.full;
+    let meta = '<b>No. ' + p.frame + '</b> · ' + p.date + ' · X100T';
+    if (p.caption) meta += '<span class="caption">' + p.caption + '</span>';
+    lbmeta.innerHTML = meta;
+    lb.classList.add('open');
+  }
+
+  holder.addEventListener('click', e => {
+    const f = e.target.closest('.frame');
+    if (!f) return;
+    openLightbox(byId[f.dataset.id]);
+  });
+  holder.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const f = e.target.closest('.frame');
+    if (!f) return;
+    e.preventDefault();
+    openLightbox(byId[f.dataset.id]);
+  });
+  lb.addEventListener('click', () => lb.classList.remove('open'));
+  addEventListener('keydown', e => { if (e.key === 'Escape') lb.classList.remove('open'); });
+</script>
+</body>
+</html>

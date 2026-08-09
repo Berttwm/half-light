@@ -1,0 +1,64 @@
+/* shared design language for all three concept mockups */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --ground: #131313;
+  --ground-soft: #1a1a1a;
+  --ink: #c9c4bc;
+  --ink-dim: #6e6a63;
+  --safelight: #d99a4e;
+  --serif: Georgia, 'Times New Roman', serif;
+  --mono: Consolas, 'Courier New', monospace;
+}
+html { background: var(--ground); }
+body { background: var(--ground); color: var(--ink); font-family: var(--serif); min-height: 100vh; }
+body::after { /* film grain on the ground, never on the photos */
+  content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 50; opacity: .045;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+a { color: var(--ink); text-decoration: none; }
+.mono { font-family: var(--mono); font-size: 11px; letter-spacing: .12em; color: var(--ink-dim); }
+.lightbox {
+  position: fixed; inset: 0; z-index: 100; background: rgba(10,10,10,.97);
+  display: none; flex-direction: column; align-items: center; justify-content: center; cursor: zoom-out;
+}
+.lightbox.open { display: flex; }
+.lightbox img { max-width: 92vw; max-height: 84vh; display: block; }
+.lightbox .meta { margin-top: 18px; font-family: var(--mono); font-size: 11px; letter-spacing: .18em; color: var(--ink-dim); }
+.lightbox .meta b { color: var(--safelight); font-weight: normal; }
+/* addition beyond the round-8 mockup: mockup had no caption field. Optional per-photo
+   caption line (from overrides.json) rendered under the technical meta line when present. */
+.lightbox .meta .caption { display: block; margin-top: 6px; font-family: var(--serif); font-style: italic; font-size: 13px; letter-spacing: .02em; color: var(--ink); }
+
+/* ---- Contact Sheet page (Task 9) ---- */
+header { display: flex; justify-content: space-between; padding: 26px 34px; }
+header .title { font-family: var(--mono); font-size: 12px; letter-spacing: .3em; color: var(--ink); }
+.roll { padding: 10px 34px 40px; }
+.roll h2 { font-family: var(--mono); font-size: 11px; letter-spacing: .25em; color: var(--ink-dim);
+           font-weight: normal; border-bottom: 1px solid #262626; padding-bottom: 8px; margin-bottom: 2px; }
+.strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 2px; background: #0b0b0b; padding: 14px 2px; }
+.frame { padding: 6px 4px; cursor: pointer; position: relative; transition: z-index 0s .18s, opacity .45s ease; }
+.frame:hover, .frame:focus-visible { z-index: 5; transition: z-index 0s; animation: drift 4.6s ease-in-out .3s infinite; outline: none; }
+@keyframes drift {                                  /* organic wander, not a metronome bob */
+  0%, 100% { transform: translate(0, 0); }
+  23% { transform: translate(4px, -8px); }
+  47% { transform: translate(-5px, -3px); }
+  72% { transform: translate(3px, -10px); }
+}
+@keyframes glowpulse {   /* the 1px ring rides the image edge exactly — box-shadow scales with the element */
+  0%, 100% { box-shadow: 0 0 0 1px rgba(217,154,78,.85), 0 22px 65px rgba(0,0,0,.8), 0 0 26px rgba(217,154,78,.25); filter: brightness(1.04); }
+  50% { box-shadow: 0 0 0 1px rgba(217,154,78,1), 0 26px 75px rgba(0,0,0,.85), 0 0 52px rgba(217,154,78,.55); filter: brightness(1.12); }
+}
+.frame .edge { font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; color: #6e6355; margin: 0 0 4px 2px; }
+.frame img { width: 100%; display: block; aspect-ratio: 3/2; object-fit: cover; filter: brightness(.96); transition: filter .25s, transform .3s cubic-bezier(.2,.9,.3,1.15), box-shadow .3s; }
+.frame .date { font-family: var(--mono); font-size: 9px; letter-spacing: .2em; color: #45423c; margin: 5px 0 0 2px; }
+.frame:hover img, .frame:focus-visible img { transform: scale(1.38); animation: glowpulse 2.4s ease-in-out .25s infinite; }
+/* the safelight spotlights the hovered print; the rest of the sheet falls back into the dark */
+.strip:hover .frame:not(:hover) { opacity: .32; }
+.frame:hover .edge, .frame:focus-visible .edge { color: var(--safelight); }
+header a { font-family: var(--mono); font-size: 10px; letter-spacing: .28em; color: var(--ink-dim); }
+header a:hover { color: var(--safelight); }
+@media (max-width: 700px) {
+  header { padding: 18px 16px; flex-wrap: wrap; gap: 8px; }
+  .roll { padding: 8px 14px 28px; }
+  .strip { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+}
