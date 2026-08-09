@@ -103,7 +103,7 @@ def exposure_lift(arr, ecfg):
     p = math.log(ecfg["target_median"]) / math.log(max(med, 1e-6))
     p = min(1.0, max(ecfg["gamma_min"], p))
     if med < ecfg["dark_soft"]:
-        p = (1.0 + p) / 2.0                                          # halve the lift near-dark
+        p = (3.0 + p) / 4.0                                          # quarter-strength lift near-dark (ROUND 3b)
     if p >= 1.0:
         return arr, 1.0
     Ls = np.power(np.maximum(L, 1e-6), p)
@@ -167,14 +167,20 @@ def build_look_lut(lcfg):
     cool_w = _bell(hue, 95.0, 165.0, 235.0)
 
     sat_shaping = (sat + vib) * (1 - hd * L * L)
-    sat_factor = (sat_shaping
-                  * (1 + (warm_sat_mult - 1) * warm_w * (1 - np.minimum(1.0, chroma * 1.3)))
-                  * (1 - (1 - cool_sat_mult) * cool_w))
+    # ROUND 3b: warm self-limiter softened (chroma*1.0 not *1.3) but the realized warm
+    # multiplier is hard-capped at 1.6x — lets warm_sat_mult run hotter for extreme
+    # (facade-like) regimes without the "influencer" global-push risk elsewhere.
+    warm_boost = 1 + (warm_sat_mult - 1) * warm_w * (1 - np.minimum(1.0, chroma * 1.0))
+    warm_boost = np.minimum(warm_boost, 1.6)
+    sat_factor = sat_shaping * warm_boost * (1 - (1 - cool_sat_mult) * cool_w)
     v = L + (v - L) * sat_factor                            # sat shaping, hue-gated warm/cool, desat near white
     v = v + warm_lum_add * warm_w * np.minimum(1.0, chroma * 2.0)  # luminance push, warm entries only
     v = v + st * (1 - L) ** 2 + ht * L ** 2                 # split tone
     v = fb + (wc - fb) * v                                  # fade floor + ceiling
-    v = v + mid_lift * v * (1 - v) * 2                       # parabolic mid bump, before the toe re-anchors blacks
+    # ROUND 3b: multiplicative, luminance-driven (not per-channel) — preserves hue/chroma
+    # ratios instead of compressing them; same mid-grey-peaking parabola as before
+    # (luminance gain = 2*mid_lift*L*(1-L)), it just no longer cancels the warm boost.
+    v = v * (1 + 2 * mid_lift * (1 - L))                     # parabolic mid bump, before the toe re-anchors blacks
     t = np.clip(L / toe_end, 0, 1)
     sm = t * t * (3 - 2 * t)                                # smoothstep(0, toe_end, L)
     v = v - toe_depth * (1 - sm) ** 2                       # toe: smooth shadow darkening, 0 when toe_depth=0

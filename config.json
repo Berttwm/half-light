@@ -3,7 +3,7 @@
   "intro_line": "the inner machinations of a photographic mind are an enigma",
   "source_dir": "E:/Videos_Photos/X100T Photos/favorites",
   "reel_size": 14,
-  "exposure": { "target_median": 0.47, "gamma_min": 0.60, "dark_skip": 0.02, "dark_soft": 0.08 },
+  "exposure": { "target_median": 0.47, "gamma_min": 0.60, "dark_skip": 0.02, "dark_soft": 0.12 },
   "wb": { "strength": 0.30, "clamp": 0.06 },
   "rotate": { "min_angle": 0.3, "max_angle": 4.0, "min_area_keep": 0.88 },
   "look": { "fade_black": 0.008, "white_ceiling": 0.995, "shoulder_slope": 0.62,

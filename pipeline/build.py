@@ -9,6 +9,11 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # content instead of a human picking soft/med/strong.
 
 REGIME_KEYS = ("toe_depth", "mid_lift", "warm_sat_mult", "warm_lum_add", "cool_sat_mult", "shoulder")
+# ROUND 3b: mid_lift's bright-regime anchor (0.045) is shared by every bright photo, not
+# just pastel ones — a flat bump to 0.06 also nudged DSCF0212 (bright, non-pastel) further
+# past its own median-L target. Gated the extra 0.015 (0.045->0.06 total) to pastel_s
+# instead, so golden-but-not-pastel scenes like 0212 are untouched (pastel_s=0 there).
+MID_LIFT_PASTEL_BONUS = 0.015
 
 def _clamp01(x):
     return max(0.0, min(1.0, x))
@@ -52,18 +57,22 @@ def _regime_look(cfg, arr):
 
     params = {
         "toe_depth": round(_lerp(lk["toe_dark"], lk["toe_bright"], bright_s), 3),
-        "mid_lift": round(_lerp(0.010, 0.045, bright_s), 3),
-        # ROUND 3 fit-check on DSCF0212 (facade, golden~0.975) undershot the client's
-        # warm saturation (0.38 coefficient measured ratio 0.64 vs target 0.88-1.12).
-        # Root cause: mid_lift's per-channel curve + highlight_desat compound to tame
-        # the realized boost well below a naive "x1.38"; a naive SOOC-warm-S x1.38
-        # reproduces the reference almost exactly (0.620 vs 0.610), confirming 1.38 is
-        # the right peak multiplier, not a wrong coefficient. Bumped once (0.38->0.55,
-        # +45%) as a bounded, still self-limiting correction; did not chase the ~2.0
-        # coefficient the crude fit-check alone would need to clear threshold, since
-        # that would blow past the brief's "self-limiting, not a global push" guardrail
-        # and oversaturate less-extreme warm scenes. See ROUND 3 report for the numbers.
-        "warm_sat_mult": round(1 + 0.55 * golden_s - 0.28 * pastel_s, 3),
+        "mid_lift": round(_lerp(0.010, 0.045, bright_s) + MID_LIFT_PASTEL_BONUS * pastel_s, 3),
+        # ROUND 3b: mid_lift is now the chroma-preserving multiplicative form (grade.py)
+        # and the warm self-limiter gate was softened + hard-capped at 1.6x realized
+        # (grade.py), so this coefficient no longer fights its own boost. Re-swept
+        # DSCF0212 (facade, golden~0.975) across the full permitted [0.38, 0.7] range:
+        # ratio only reaches ~0.72 at the very top (still short of 0.88-1.12) — the
+        # self-limiting gate + highlight_desat still tame it, just less severely than
+        # before fix 1. Did NOT take the full 0.7: at that value the skylight-regime
+        # D-test point (med .66, warm_frac .6) flips from desaturated to a tiny *boost*
+        # (raw 1.0004 > 1.0) because the fixed -0.28 pastel term (unchanged per the
+        # brief — only the golden coefficient was in scope) no longer outweighs it,
+        # which contradicts the empirical "warm hues DESATURATED" finding for 0252-like
+        # scenes. 0.65 keeps real margin below that crossover (~0.699) while costing
+        # 0212's ratio only ~0.01 (0.711 vs 0.72 at 0.7) — same shortfall either way,
+        # so took the safer value. See ROUND 3b report for the full sweep.
+        "warm_sat_mult": round(1 + 0.65 * golden_s - 0.28 * pastel_s, 3),
         "warm_lum_add": round(0.09 * golden_s + 0.04 * pastel_s, 3),
         "cool_sat_mult": round(_lerp(0.85, 0.96, bright_s), 3),
         "shoulder": round(_lerp(0.80, 0.72, bright_s), 3),
