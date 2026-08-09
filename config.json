@@ -9,7 +9,7 @@
   "look": { "fade_black": 0.008, "white_ceiling": 0.995, "shoulder_slope": 0.62,
             "toe_end": 0.25, "saturation": 1.0, "look_strength": 1.0,
             "toe_dark": 0.008, "toe_bright": 0.045,
-            "highlight_desat": 0.10, "shadow_tone": [-0.002, 0.002, 0.008],
+            "highlight_desat": 0.04, "shadow_tone": [-0.002, 0.002, 0.008],
             "highlight_tone": [0.007, 0.003, -0.004] },
   "finish": { "long_edge": 2048, "thumb_edge": 1024, "latent_edge": 64, "vignette": 0.0,
               "halation_thr": 0.86, "halation_op": 0.0, "halation_tint": [1.0, 0.55, 0.25],

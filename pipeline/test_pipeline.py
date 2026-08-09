@@ -141,11 +141,11 @@ def test_look_lut_fade_and_monotonic():
 
     # LOOK V3: full regime param set at its bright-regime extreme (facade-like) must
     # still hold a monotonic tone curve — mid_lift/warm boosts are the new risk here.
-    # ROUND 3d ceiling: warm_sat_mult 2.2 raw (golden coefficient's full permitted bound
-    # 1.2 at golden_s=1) — the realized-boost cap (1.75, unchanged this round) applies
-    # inside build_look_lut itself, so this exercises that cap path at its ceiling, not
-    # just build.py's actually-chosen coefficient. mid_lift ceiling unchanged (0.06).
-    v3 = {**lcfg, "mid_lift": 0.06, "warm_sat_mult": 2.2, "warm_lum_add": 0.09,
+    # ROUND 3e ceiling: warm_sat_mult 2.4 raw (golden coefficient's full permitted bound
+    # 1.4 at golden_s=1) — the realized-boost cap (2.0, was 1.75) applies inside
+    # build_look_lut itself, so this exercises that cap path at its ceiling, not just
+    # build.py's actually-chosen coefficient. mid_lift ceiling unchanged (0.06).
+    v3 = {**lcfg, "mid_lift": 0.06, "warm_sat_mult": 2.4, "warm_lum_add": 0.09,
           "cool_sat_mult": 0.96, "toe_depth": 0.045, "toe_end": 0.25, "shoulder": 0.72}
     out_v3 = np.asarray(ramp.filter(grade.build_look_lut(v3))).astype(int)
     grey_v3 = out_v3.mean(axis=2)[0]
@@ -217,8 +217,13 @@ def test_regime_params():
     facade_look, _ = build._regime_look(cfg, _mk_regime_arr(0.42, 0.6))      # 0212-like
     assert facade_look["warm_sat_mult"] >= 1.3, facade_look
 
+    # ROUND 3e: pastel-regime design intent changed from "desaturate" to "lift luminance,
+    # KEEP chroma" (the old -0.28 pastel term was washing DSCF0252 out) — a skylight-like
+    # scene reading mildly ABOVE 1.0 is now correct, not a regression. The invariant that
+    # must still hold is qualitative separation from a true facade: mild lift, not a full
+    # golden boost. Reuses the same 1.3 threshold that anchors the facade assertion above.
     sky_look, _ = build._regime_look(cfg, _mk_regime_arr(0.66, 0.6))         # 0252-like
-    assert sky_look["warm_sat_mult"] < 1.0, sky_look
+    assert 1.0 <= sky_look["warm_sat_mult"] < 1.3, sky_look
     print("ok test_regime_params")
 
 def test_finish_grain_and_size():

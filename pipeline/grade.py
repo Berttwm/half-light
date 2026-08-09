@@ -171,12 +171,11 @@ def build_look_lut(lcfg):
     cool_w = _bell(hue, 95.0, 165.0, 235.0)
 
     sat_shaping = (sat + vib) * (1 - hd * L * L)
-    # ROUND 3c: warm self-limiter softened again (chroma*0.7, was *1.0 in 3b, *1.3
-    # originally) and the realized warm multiplier cap raised 1.6->1.75 — client's own
-    # edit is ground truth for warm architecture, 9836 skin check passed at 1.6 so this
-    # is one calibrated relaxation for the warm band only (cool band untouched).
-    warm_boost = 1 + (warm_sat_mult - 1) * warm_w * (1 - np.minimum(1.0, chroma * 0.7))
-    warm_boost = np.minimum(warm_boost, 1.75)
+    # ROUND 3e: client-authorized guard relaxation for the full-golden push — gate
+    # softened again (chroma*0.55, was *0.7 in 3c) and realized cap raised 1.75->2.0.
+    # See ROUND 3e report for the mandatory skin/neon/red eye-checks that verified this.
+    warm_boost = 1 + (warm_sat_mult - 1) * warm_w * (1 - np.minimum(1.0, chroma * 0.55))
+    warm_boost = np.minimum(warm_boost, 2.0)
     sat_factor = sat_shaping * warm_boost * (1 - (1 - cool_sat_mult) * cool_w)
     v = L + (v - L) * sat_factor                            # sat shaping, hue-gated warm/cool, desat near white
     v = v + warm_lum_add * warm_w * np.minimum(1.0, chroma * 2.0)  # luminance push, warm entries only

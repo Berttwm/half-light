@@ -15,6 +15,15 @@ REGIME_KEYS = ("toe_depth", "mid_lift", "warm_sat_mult", "warm_lum_add", "cool_s
 # instead, so golden-but-not-pastel scenes like 0212 are untouched (pastel_s=0 there).
 MID_LIFT_PASTEL_BONUS = 0.015
 
+# ROUND 3e: retuned to 1.4 (the top of the newly-extended [0.38, 1.4] bound). Unlike
+# ROUND 3b/3c, there's no tradeoff here — swept the full range against the real photos:
+# 0212's chroma ratio climbs 0.72->1.04 (target >=0.90 met from coef~1.0 onward, no upper
+# bound given so took the max), 0022/0018 stay flat near-neutral throughout, and 0252's
+# chroma ratio (bottlenecked separately, see the warm_sat_mult pastel term below) still
+# only improves with a higher coefficient, never regresses. Median-L deltas for all four
+# stay within their targets across the whole range. See ROUND 3e report for the sweep.
+GOLDEN_COEF = 1.4
+
 def _clamp01(x):
     return max(0.0, min(1.0, x))
 
@@ -61,17 +70,13 @@ def _regime_look(cfg, arr):
     params = {
         "toe_depth": round(_lerp(lk["toe_dark"], lk["toe_bright"], bright_s), 3),
         "mid_lift": round(_lerp(0.010, 0.045, bright_s) + MID_LIFT_PASTEL_BONUS * pastel_s, 3),
-        # ROUND 3d: golden coefficient bound extended to [0.38, 1.2]. Diagnostic sweep
-        # (see report) found the realized warm ratio asymptotes at ~0.858 as raw
-        # warm_sat_mult -> infinity — the 1.75 cap and 0.7 gate slope (kept as-is per
-        # this round's brief) structurally bound it below the 0.88 target regardless of
-        # coefficient. Took 1.2 (top of range) anyway: unlike ROUND 3b/3c, going to the
-        # bound here costs nothing — 0022/0018/0252 all stay flat-to-improved and the
-        # narrowed golden_bell sigma + steepened pastel keep 0252 and the skylight D-test
-        # point comfortably non-boosted even at 1.2 (verified below), so there's no
-        # tradeoff left to protect by holding back.
-        "warm_sat_mult": round(1 + 1.2 * golden_s - 0.28 * pastel_s, 3),
-        "warm_lum_add": round(0.09 * golden_s + 0.04 * pastel_s, 3),
+        # ROUND 3e: pastel term in warm_sat_mult cut -0.28->-0.06 (the client's bright-
+        # scene treatment is "lift luminance, KEEP chroma", not desaturate — the old
+        # -0.28 term was washing 0252 out) and warm_lum_add's pastel bonus raised
+        # 0.04->0.07 to match (more luminance lift, far less chroma stripped). Golden
+        # coefficient bound extended to [0.38, 1.4] this round; see report for the retune.
+        "warm_sat_mult": round(1 + GOLDEN_COEF * golden_s - 0.06 * pastel_s, 3),
+        "warm_lum_add": round(0.09 * golden_s + 0.07 * pastel_s, 3),
         "cool_sat_mult": round(_lerp(0.85, 0.96, bright_s), 3),
         "shoulder": round(_lerp(0.80, 0.72, bright_s), 3),
     }
@@ -143,9 +148,10 @@ def select_calibration_stems(manifest):
 REF_MAP = {"photo_1": "DSCF0212", "photo_2": "DSCF0022", "photo_3": "DSCF0018", "photo_4": "DSCF0252"}
 
 def _fit_stats(ours, ref):
-    """Simple fit check between our V3 grade and the client's reference edit:
-    median-luma delta and warm/cool-bin saturation ratios, both measured the
-    same way as the regime layer itself so the numbers are comparable."""
+    """Fit check between our V3 grade and the client's reference edit: median-luma
+    delta and warm/cool-bin CHROMA ratios (ROUND 3e — a raw-S ratio undercounts a
+    bright-but-mildly-desaturated edit like his 0252 as "washed" when the actual
+    color MASS, S*V, is retained; chroma = S*V is the perceived-colorfulness proxy)."""
     import numpy as np
     from pipeline import grade
     def stats(img):
@@ -155,15 +161,16 @@ def _fit_stats(ours, ref):
         L = 0.2126 * a[..., 0] + 0.7152 * a[..., 1] + 0.0722 * a[..., 2]
         maxc, minc = a.max(axis=-1), a.min(axis=-1)
         S = np.where(maxc > 0, (maxc - minc) / np.maximum(maxc, 1e-6), 0.0)
+        chroma = S * maxc                                  # perceived colorfulness ~ S*V
         hue = grade.hue_deg(a[..., 0], a[..., 1], a[..., 2])
         warm, cool = (hue >= 5) & (hue <= 70), (hue >= 95) & (hue <= 235)
-        return (float(np.median(L)), float(S[warm].mean()) if warm.any() else 0.0,
-                float(S[cool].mean()) if cool.any() else 0.0)
+        return (float(np.median(L)), float(chroma[warm].mean()) if warm.any() else 0.0,
+                float(chroma[cool].mean()) if cool.any() else 0.0)
     med_o, warm_o, cool_o = stats(ours)
     med_r, warm_r, cool_r = stats(ref)
     return {"med_L_delta": round(med_o - med_r, 3),
-            "warm_sat_ratio": round(warm_o / warm_r, 3) if warm_r > 1e-6 else None,
-            "cool_sat_ratio": round(cool_o / cool_r, 3) if cool_r > 1e-6 else None}
+            "warm_chroma_ratio": round(warm_o / warm_r, 3) if warm_r > 1e-6 else None,
+            "cool_chroma_ratio": round(cool_o / cool_r, 3) if cool_r > 1e-6 else None}
 
 CAL_EXT = {"sooc": "webp", "v3": "webp", "ref": "jpg"}   # ref is a straight copy of the client's own jpg
 
@@ -177,8 +184,8 @@ def _calibrate_html(picks, ref_stems, fits):
         if stem in fits:
             f = fits[stem]
             fit_html = ('<div class="fit">fit vs ref — median L delta %+.3f  '
-                        'warm sat ratio %s  cool sat ratio %s</div>' %
-                        (f["med_L_delta"], f["warm_sat_ratio"], f["cool_sat_ratio"]))
+                        'warm chroma ratio %s  cool chroma ratio %s</div>' %
+                        (f["med_L_delta"], f["warm_chroma_ratio"], f["cool_chroma_ratio"]))
         rows.append('<div class="stem">%s — %s</div><div class="row cols%d">%s</div>%s' %
                      (stem, reason, len(cols), cells, fit_html))
     return """<!doctype html><meta charset="utf-8"><title>calibration</title>
@@ -257,8 +264,8 @@ def calibrate(cfg, root=ROOT):
         for stem in REF_MAP.values():
             if stem in fits:
                 f = fits[stem]
-                print("  %s  median L delta %+.3f  warm sat ratio %s  cool sat ratio %s" %
-                      (stem, f["med_L_delta"], f["warm_sat_ratio"], f["cool_sat_ratio"]))
+                print("  %s  median L delta %+.3f  warm chroma ratio %s  cool chroma ratio %s" %
+                      (stem, f["med_L_delta"], f["warm_chroma_ratio"], f["cool_chroma_ratio"]))
     print("CALIBRATE OK: %d photos -> _work/calibrate.html" % len(picks))
     return 0
 
