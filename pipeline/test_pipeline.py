@@ -141,10 +141,11 @@ def test_look_lut_fade_and_monotonic():
 
     # LOOK V3: full regime param set at its bright-regime extreme (facade-like) must
     # still hold a monotonic tone curve — mid_lift/warm boosts are the new risk here.
-    # ROUND 3b ceilings: mid_lift 0.06 (was 0.045), warm_sat_mult 1.65 raw (golden
-    # coefficient 0.65 at golden_s=1) — the 1.6 realized-boost cap applies inside
-    # build_look_lut itself, so this also exercises that cap path.
-    v3 = {**lcfg, "mid_lift": 0.06, "warm_sat_mult": 1.65, "warm_lum_add": 0.09,
+    # ROUND 3c ceilings: mid_lift 0.06 (unchanged), warm_sat_mult 1.85 raw (golden
+    # coefficient's full permitted bound 0.85 at golden_s=1) — the realized-boost cap
+    # (now 1.75, was 1.6) applies inside build_look_lut itself, so this also exercises
+    # that cap path at its new ceiling, not just build.py's actually-chosen coefficient.
+    v3 = {**lcfg, "mid_lift": 0.06, "warm_sat_mult": 1.85, "warm_lum_add": 0.09,
           "cool_sat_mult": 0.96, "toe_depth": 0.045, "toe_end": 0.25, "shoulder": 0.72}
     out_v3 = np.asarray(ramp.filter(grade.build_look_lut(v3))).astype(int)
     grey_v3 = out_v3.mean(axis=2)[0]

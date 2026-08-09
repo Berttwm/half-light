@@ -58,21 +58,22 @@ def _regime_look(cfg, arr):
     params = {
         "toe_depth": round(_lerp(lk["toe_dark"], lk["toe_bright"], bright_s), 3),
         "mid_lift": round(_lerp(0.010, 0.045, bright_s) + MID_LIFT_PASTEL_BONUS * pastel_s, 3),
-        # ROUND 3b: mid_lift is now the chroma-preserving multiplicative form (grade.py)
-        # and the warm self-limiter gate was softened + hard-capped at 1.6x realized
-        # (grade.py), so this coefficient no longer fights its own boost. Re-swept
-        # DSCF0212 (facade, golden~0.975) across the full permitted [0.38, 0.7] range:
-        # ratio only reaches ~0.72 at the very top (still short of 0.88-1.12) — the
-        # self-limiting gate + highlight_desat still tame it, just less severely than
-        # before fix 1. Did NOT take the full 0.7: at that value the skylight-regime
-        # D-test point (med .66, warm_frac .6) flips from desaturated to a tiny *boost*
-        # (raw 1.0004 > 1.0) because the fixed -0.28 pastel term (unchanged per the
-        # brief — only the golden coefficient was in scope) no longer outweighs it,
-        # which contradicts the empirical "warm hues DESATURATED" finding for 0252-like
-        # scenes. 0.65 keeps real margin below that crossover (~0.699) while costing
-        # 0212's ratio only ~0.01 (0.711 vs 0.72 at 0.7) — same shortfall either way,
-        # so took the safer value. See ROUND 3b report for the full sweep.
-        "warm_sat_mult": round(1 + 0.65 * golden_s - 0.28 * pastel_s, 3),
+        # ROUND 3c: warm gate softened again (chroma*0.7) and realized cap raised to
+        # 1.75 (grade.py) — client's own edit is ground truth for warm architecture, so
+        # this is a calibrated relaxation. Re-swept the golden coefficient across the
+        # newly-extended [0.38, 0.85]: DSCF0212's ratio climbs to ~0.76 at the very top,
+        # still short of 0.88-1.12. Did NOT take 0.85 (or anything above ~0.699): the
+        # fixed -0.28 pastel term is unchanged (out of scope both rounds), and the
+        # skylight-regime D-test point (med .66, warm_frac .6) flips from desaturated to
+        # a tiny net boost above that crossover — same constraint as ROUND 3b, still
+        # binding regardless of the wider bound, since "do NOT regress the skylight
+        # pastel direction" was explicit this round too. 0.68 keeps a real margin below
+        # the crossover (raw 0.995 vs the 1.0 line) while landing DSCF0212 at ratio
+        # ~0.73 (best available under both constraints). Real DSCF0252 stays comfortably
+        # non-boosted at 0.85 too (raw ~0.93) — it's specifically the brief's synthetic
+        # D-test coordinates that are more conservative than any real photo measured so
+        # far. See ROUND 3c report for the full sweep.
+        "warm_sat_mult": round(1 + 0.68 * golden_s - 0.28 * pastel_s, 3),
         "warm_lum_add": round(0.09 * golden_s + 0.04 * pastel_s, 3),
         "cool_sat_mult": round(_lerp(0.85, 0.96, bright_s), 3),
         "shoulder": round(_lerp(0.80, 0.72, bright_s), 3),
