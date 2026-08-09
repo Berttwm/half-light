@@ -49,8 +49,11 @@ def _regime_look(cfg, arr):
     ls = lk.get("look_strength", 1.0)
     bright = _clamp01((med_L - 0.15) / 0.30)
     golden_gate = _clamp01((warm_frac - 0.12) / 0.35)
-    golden_bell = math.exp(-((med_L - 0.42) ** 2) / (2 * 0.15 ** 2))
-    pastel = _clamp01((med_L - 0.55) / 0.15)
+    # ROUND 3d: golden bell narrowed (sigma 0.15->0.12, med .66 contribution 0.278->0.135)
+    # and pastel steepened (was clamp((med_L-0.55)/0.15,0,1)) to free the coefficient bound
+    # for the facade push without also inflating skylight/pastel scenes.
+    golden_bell = math.exp(-((med_L - 0.42) ** 2) / (2 * 0.12 ** 2))
+    pastel = _clamp01((med_L - 0.52) / 0.10)
     bright_s = bright * ls
     golden_s = golden_bell * golden_gate * ls
     pastel_s = pastel * golden_gate * ls
@@ -58,22 +61,16 @@ def _regime_look(cfg, arr):
     params = {
         "toe_depth": round(_lerp(lk["toe_dark"], lk["toe_bright"], bright_s), 3),
         "mid_lift": round(_lerp(0.010, 0.045, bright_s) + MID_LIFT_PASTEL_BONUS * pastel_s, 3),
-        # ROUND 3c: warm gate softened again (chroma*0.7) and realized cap raised to
-        # 1.75 (grade.py) — client's own edit is ground truth for warm architecture, so
-        # this is a calibrated relaxation. Re-swept the golden coefficient across the
-        # newly-extended [0.38, 0.85]: DSCF0212's ratio climbs to ~0.76 at the very top,
-        # still short of 0.88-1.12. Did NOT take 0.85 (or anything above ~0.699): the
-        # fixed -0.28 pastel term is unchanged (out of scope both rounds), and the
-        # skylight-regime D-test point (med .66, warm_frac .6) flips from desaturated to
-        # a tiny net boost above that crossover — same constraint as ROUND 3b, still
-        # binding regardless of the wider bound, since "do NOT regress the skylight
-        # pastel direction" was explicit this round too. 0.68 keeps a real margin below
-        # the crossover (raw 0.995 vs the 1.0 line) while landing DSCF0212 at ratio
-        # ~0.73 (best available under both constraints). Real DSCF0252 stays comfortably
-        # non-boosted at 0.85 too (raw ~0.93) — it's specifically the brief's synthetic
-        # D-test coordinates that are more conservative than any real photo measured so
-        # far. See ROUND 3c report for the full sweep.
-        "warm_sat_mult": round(1 + 0.68 * golden_s - 0.28 * pastel_s, 3),
+        # ROUND 3d: golden coefficient bound extended to [0.38, 1.2]. Diagnostic sweep
+        # (see report) found the realized warm ratio asymptotes at ~0.858 as raw
+        # warm_sat_mult -> infinity — the 1.75 cap and 0.7 gate slope (kept as-is per
+        # this round's brief) structurally bound it below the 0.88 target regardless of
+        # coefficient. Took 1.2 (top of range) anyway: unlike ROUND 3b/3c, going to the
+        # bound here costs nothing — 0022/0018/0252 all stay flat-to-improved and the
+        # narrowed golden_bell sigma + steepened pastel keep 0252 and the skylight D-test
+        # point comfortably non-boosted even at 1.2 (verified below), so there's no
+        # tradeoff left to protect by holding back.
+        "warm_sat_mult": round(1 + 1.2 * golden_s - 0.28 * pastel_s, 3),
         "warm_lum_add": round(0.09 * golden_s + 0.04 * pastel_s, 3),
         "cool_sat_mult": round(_lerp(0.85, 0.96, bright_s), 3),
         "shoulder": round(_lerp(0.80, 0.72, bright_s), 3),

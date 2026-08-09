@@ -141,11 +141,11 @@ def test_look_lut_fade_and_monotonic():
 
     # LOOK V3: full regime param set at its bright-regime extreme (facade-like) must
     # still hold a monotonic tone curve — mid_lift/warm boosts are the new risk here.
-    # ROUND 3c ceilings: mid_lift 0.06 (unchanged), warm_sat_mult 1.85 raw (golden
-    # coefficient's full permitted bound 0.85 at golden_s=1) — the realized-boost cap
-    # (now 1.75, was 1.6) applies inside build_look_lut itself, so this also exercises
-    # that cap path at its new ceiling, not just build.py's actually-chosen coefficient.
-    v3 = {**lcfg, "mid_lift": 0.06, "warm_sat_mult": 1.85, "warm_lum_add": 0.09,
+    # ROUND 3d ceiling: warm_sat_mult 2.2 raw (golden coefficient's full permitted bound
+    # 1.2 at golden_s=1) — the realized-boost cap (1.75, unchanged this round) applies
+    # inside build_look_lut itself, so this exercises that cap path at its ceiling, not
+    # just build.py's actually-chosen coefficient. mid_lift ceiling unchanged (0.06).
+    v3 = {**lcfg, "mid_lift": 0.06, "warm_sat_mult": 2.2, "warm_lum_add": 0.09,
           "cool_sat_mult": 0.96, "toe_depth": 0.045, "toe_end": 0.25, "shoulder": 0.72}
     out_v3 = np.asarray(ramp.filter(grade.build_look_lut(v3))).astype(int)
     grey_v3 = out_v3.mean(axis=2)[0]
@@ -165,20 +165,31 @@ def test_look_lut_toe_darkens_shadows():
     print("ok test_look_lut_toe_darkens_shadows")
 
 def test_look_lut_vibrance_self_limits():
+    import colorsys
     import numpy as np
     from PIL import Image
     from pipeline import grade
     base = {"fade_black": 0.0, "white_ceiling": 1.0, "shoulder": 0.95, "saturation": 1.0,
             "highlight_desat": 0.0, "shadow_tone": [0, 0, 0], "highlight_tone": [0, 0, 0]}
-    def chroma_gain(rgb):
+    def chroma_ratio(rgb):
+        # ROUND 3d: self-limiting is a property of the boost FACTOR, not the resulting
+        # absolute chroma delta — two colors sharing a hue but differing only in chroma
+        # isolate it cleanly (an absolute-delta comparison across *different* hues
+        # conflates the chroma gate with the warm bell's own hue weighting, which the
+        # 3d re-centered bell broke: hue~10deg now gets much more bell weight than it
+        # used to, so the old two-different-hue fixture's absolute gains flipped order
+        # even though the underlying self-limiting factor is unchanged and correct).
         px = Image.new("RGB", (2, 2), tuple(int(round(c * 255)) for c in rgb))
         def chroma(lut):
             a = np.asarray(px.filter(lut)).astype(np.float32)[0, 0]
             return float(a.max() - a.min())
-        return chroma(grade.build_look_lut({**base, "warm_sat_mult": 1.5})) - chroma(grade.build_look_lut(base))
-    muted_gain = chroma_gain((.5, .45, .42))          # low-chroma warm/skin-like entry, hue ~22deg
-    saturated_gain = chroma_gain((.8, .3, .2))        # already-saturated warm entry, hue ~10deg
-    assert muted_gain > saturated_gain > 0            # self-limiting: muted warm entry gains more than saturated one
+        return chroma(grade.build_look_lut({**base, "warm_sat_mult": 1.5})) / chroma(grade.build_look_lut(base))
+    hue = 22 / 360                                     # same warm hue for both — isolates the chroma gate
+    muted = colorsys.hsv_to_rgb(hue, 0.15, 0.55)        # low-chroma warm/skin-like entry
+    saturated = colorsys.hsv_to_rgb(hue, 0.65, 0.75)    # already-saturated warm entry, same hue
+    muted_ratio = chroma_ratio(muted)
+    saturated_ratio = chroma_ratio(saturated)
+    assert muted_ratio > saturated_ratio > 1.0          # self-limiting: muted warm entry gains more than saturated one
     print("ok test_look_lut_vibrance_self_limits")
 
 def _mk_regime_arr(L, warm_frac):

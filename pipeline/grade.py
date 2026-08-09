@@ -163,7 +163,11 @@ def build_look_lut(lcfg):
     vib = sat_boost * (1.0 - np.minimum(1.0, chroma * 1.6))   # vibrance: muted pixels get the boost, saturated self-limit
 
     hue = hue_deg(R, G, B)[..., None]
-    warm_w = _bell(hue, 5.0, 32.0, 70.0)      # warm bell: steeper toward red/skin (27deg) than yellow (38deg)
+    # ROUND 3d: re-centered/widened toward red (was 5/32/70) — the facade's own stucco
+    # hue mass (~15-25deg) was under-weighted by the old bell. Skin protection moves from
+    # hue-exclusion to the other guards (vibrance limiter, 1.75 cap, golden gate) — see
+    # ROUND 3d report for the mandatory skin eye-check that verified this is safe.
+    warm_w = _bell(hue, 3.0, 26.0, 68.0)
     cool_w = _bell(hue, 95.0, 165.0, 235.0)
 
     sat_shaping = (sat + vib) * (1 - hd * L * L)
