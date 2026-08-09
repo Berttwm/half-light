@@ -6,7 +6,7 @@ A pseudonymous photo showcase built with a deterministic composition pipeline an
 
 **Quick Deploy:** Double-click `deploy\SYNC.bat` to grade new photos, build the site, and push to Cloudflare.
 
-**Recommended:** Create a `.lnk` shortcut to `deploy\SYNC.bat` in your Windows Favorites folder. A `.lnk` shortcut preserves the working directory at the repo root, so updates to the script are picked up automatically. (Plain copies of `.bat` also work since the script uses an absolute `cd /d` path, but shortcuts handle future updates seamlessly.)
+**Recommended:** Create a `.lnk` shortcut to `deploy\SYNC.bat` in your Windows Favorites folder. Shortcuts ensure that future bat updates propagate automatically. (Plain copies of `.bat` also work since the script uses an absolute `cd /d` path, but shortcuts handle future updates seamlessly.)
 
 ## One-Time Setup
 
@@ -15,18 +15,24 @@ A pseudonymous photo showcase built with a deterministic composition pipeline an
    ```bash
    git remote add origin https://github.com/<your-username>/<repo-name>.git
    ```
-3. **Push to GitHub:**
+3. **Push to GitHub (after the project's finish step):**
+   Once the project finish merges `build` → `master`, verify the site files are on master:
    ```bash
-   git push -u origin master
-   git push -u origin build
+   git log master --oneline
    ```
-   (The `build` branch is a working branch; you can merge it into `master` or keep it separate.)
+   If the log doesn't show the site files, manually merge and push:
+   ```bash
+   git checkout master
+   git merge build
+   git push -u origin master
+   ```
 
 4. **Connect to Cloudflare Pages:**
    - Go to [Cloudflare Dashboard](https://dash.cloudflare.com/)
    - Navigate to **Workers & Pages** → **Pages**
    - Click **Create** → **Connect to Git**
    - Select your repository
+   - **Production branch:** `master`
    - **Build command:** Leave empty (the site is pre-built locally)
    - **Build output directory:** `site`
    - Click **Save and deploy**

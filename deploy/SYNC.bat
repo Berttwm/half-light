@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 title Half-Light SYNC
 cd /d C:\Users\Bertrand\Desktop\dev\photo-showcase
 echo Grading new photos...
