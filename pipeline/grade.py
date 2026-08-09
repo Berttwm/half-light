@@ -146,6 +146,7 @@ def build_look_lut(lcfg):
     warm_sat_mult = lcfg.get("warm_sat_mult", 1.0)
     warm_lum_add = lcfg.get("warm_lum_add", 0.0)
     cool_sat_mult = lcfg.get("cool_sat_mult", 1.0)
+    pink_sat_mult = lcfg.get("pink_sat_mult", 1.0)
     st = np.array(lcfg["shadow_tone"])
     ht = np.array(lcfg["highlight_tone"])
 
@@ -169,6 +170,11 @@ def build_look_lut(lcfg):
     # ROUND 3d report for the mandatory skin eye-check that verified this is safe.
     warm_w = _bell(hue, 3.0, 26.0, 68.0)
     cool_w = _bell(hue, 95.0, 165.0, 235.0)
+    # ROUND 3f: narrow pink/magenta bell, pastel-regime only (build.py only sets
+    # pink_sat_mult != 1.0 when pastel_s > 0) — DSCF0252's pink stained-glass panes sit
+    # at hue ~320-360deg, outside the warm bell entirely; widening the warm bell to reach
+    # them would drag every red everywhere, so this is a separate, narrow gate instead.
+    pink_w = _bell(hue, 280.0, 330.0, 355.0)
 
     sat_shaping = (sat + vib) * (1 - hd * L * L)
     # ROUND 3e: client-authorized guard relaxation for the full-golden push — gate
@@ -176,7 +182,11 @@ def build_look_lut(lcfg):
     # See ROUND 3e report for the mandatory skin/neon/red eye-checks that verified this.
     warm_boost = 1 + (warm_sat_mult - 1) * warm_w * (1 - np.minimum(1.0, chroma * 0.55))
     warm_boost = np.minimum(warm_boost, 2.0)
-    sat_factor = sat_shaping * warm_boost * (1 - (1 - cool_sat_mult) * cool_w)
+    # ROUND 3f: same self-limiting gate/cap mechanism as the warm boost, just gated by
+    # the pink bell instead — keeps the same "self-limiting, not a global push" guardrail.
+    pink_boost = 1 + (pink_sat_mult - 1) * pink_w * (1 - np.minimum(1.0, chroma * 0.55))
+    pink_boost = np.minimum(pink_boost, 2.0)
+    sat_factor = sat_shaping * warm_boost * pink_boost * (1 - (1 - cool_sat_mult) * cool_w)
     v = L + (v - L) * sat_factor                            # sat shaping, hue-gated warm/cool, desat near white
     v = v + warm_lum_add * warm_w * np.minimum(1.0, chroma * 2.0)  # luminance push, warm entries only
     v = v + st * (1 - L) ** 2 + ht * L ** 2                 # split tone
