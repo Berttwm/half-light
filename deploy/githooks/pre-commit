@@ -1,0 +1,10 @@
+#!/bin/sh
+# master is reserved for SYNC.bat (which sets HALFLIGHT_SYNC=1).
+# Deliberate maintenance: HALFLIGHT_SYNC=1 git commit ...
+branch=$(git rev-parse --abbrev-ref HEAD)
+if [ "$branch" = "master" ] && [ "$HALFLIGHT_SYNC" != "1" ]; then
+  echo "BLOCKED: commits to master are reserved for SYNC.bat."
+  echo "  For development:  git checkout -b feature/<name>"
+  echo "  Deliberate admin: HALFLIGHT_SYNC=1 git commit ..."
+  exit 1
+fi

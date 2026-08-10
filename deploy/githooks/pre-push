@@ -1,0 +1,10 @@
+#!/bin/sh
+# Direct pushes of master are reserved for SYNC.bat (HALFLIGHT_SYNC=1).
+[ "$HALFLIGHT_SYNC" = "1" ] && exit 0
+while read local_ref local_sha remote_ref remote_sha; do
+  if [ "$remote_ref" = "refs/heads/master" ]; then
+    echo "BLOCKED: pushing master is reserved for SYNC.bat (HALFLIGHT_SYNC=1 overrides)."
+    exit 1
+  fi
+done
+exit 0

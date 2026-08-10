@@ -1,4 +1,5 @@
 @echo off
+set HALFLIGHT_SYNC=1
 title Half-Light SYNC
 cd /d C:\Users\Bertrand\Desktop\dev\photo-showcase
 echo Grading new photos...
