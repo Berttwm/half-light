@@ -44,6 +44,14 @@ A pseudonymous photo showcase built with a deterministic composition pipeline an
 
 After setup, every `SYNC` push automatically triggers a Cloudflare deployment (about 1 minute).
 
+## Branch Safety (master is SYNC-only)
+
+Repo-tracked git hooks (`deploy/githooks/`, wired via `git config core.hooksPath deploy/githooks`) block direct commits and pushes to `master`. Only `SYNC.bat` (which sets `HALFLIGHT_SYNC=1`) writes to master — so photo syncs stay clean and linear while any development work is forced onto branches:
+
+- Development: `git checkout -b feature/<name>` — work, then merge deliberately with `HALFLIGHT_SYNC=1 git merge feature/<name>` from master.
+- Deliberate admin on master: prefix the command with `HALFLIGHT_SYNC=1`.
+- Fresh clone setup: run `git config core.hooksPath deploy/githooks` once (the hooks travel with the repo).
+
 ## Changing the Pseudonym
 
 To rename the site and gallery:
