@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Half-Light — Archive Mockup</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --ground: #131313;
+  --ink: #c9c4bc;
+  --ink-dim: #6e6a63;
+  --safelight: #d99a4e;
+  --serif: Georgia, 'Times New Roman', serif;
+  --mono: Consolas, 'Courier New', monospace;
+  --radius: 14px;
+  --gap: 14px;
+}
+html { background: var(--ground); }
+body { background: var(--ground); color: var(--ink); font-family: var(--serif); min-height: 100vh; }
+body::after {
+  content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 50; opacity: .045;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+a { color: var(--ink); text-decoration: none; }
+header { display: flex; justify-content: space-between; padding: 26px 34px; }
+header .title { font-family: var(--mono); font-size: 12px; letter-spacing: .3em; color: var(--ink); }
+header a { font-family: var(--mono); font-size: 10px; letter-spacing: .28em; color: var(--ink-dim); }
+header a:hover { color: var(--safelight); }
+
+/* mockup control bar — not part of the final design */
+#controls { display: flex; gap: 26px; flex-wrap: wrap; padding: 4px 34px 18px; font-family: var(--mono); font-size: 10px; letter-spacing: .18em; color: var(--ink-dim); align-items: center; }
+#controls .grp { display: flex; gap: 2px; align-items: center; }
+#controls .lbl { margin-right: 8px; }
+#controls button { font: inherit; letter-spacing: inherit; color: var(--ink-dim); background: #1c1c1c; border: 1px solid #2a2a2a; padding: 6px 12px; cursor: pointer; }
+#controls button.on { color: var(--safelight); border-color: var(--safelight); }
+#controls label { cursor: pointer; display: flex; gap: 8px; align-items: center; }
+
+.roll { padding: 10px 34px 40px; }
+.roll h2 { font-family: var(--mono); font-size: 11px; letter-spacing: .25em; color: var(--ink-dim);
+           font-weight: normal; border-bottom: 1px solid #262626; padding-bottom: 8px; margin-bottom: 16px; }
+
+/* masonry: rows mode = flex columns filled by JS; cols mode = CSS multi-column */
+#grid.rows { display: flex; gap: var(--gap); align-items: flex-start; }
+#grid.rows .col { flex: 1; display: flex; flex-direction: column; gap: var(--gap); min-width: 0; }
+#grid.cols { column-gap: var(--gap); }
+#grid.cols .frame { break-inside: avoid; margin-bottom: var(--gap); }
+
+.frame { cursor: pointer; position: relative; transition: z-index 0s .18s, opacity .45s ease; }
+.frame:hover, .frame:focus-visible { z-index: 5; transition: z-index 0s; animation: drift 4.6s ease-in-out .3s infinite; outline: none; }
+@keyframes drift {
+  0%, 100% { transform: translate(0, 0); }
+  23% { transform: translate(4px, -8px); }
+  47% { transform: translate(-5px, -3px); }
+  72% { transform: translate(3px, -10px); }
+}
+@keyframes glowpulse {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(217,154,78,.85), 0 22px 65px rgba(0,0,0,.8), 0 0 26px rgba(217,154,78,.25); filter: brightness(1.04); }
+  50% { box-shadow: 0 0 0 1px rgba(217,154,78,1), 0 26px 75px rgba(0,0,0,.85), 0 0 52px rgba(217,154,78,.55); filter: brightness(1.12); }
+}
+.frame .edge { font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; color: #6e6355; margin: 0 0 6px 4px; }
+.frame img { width: 100%; height: auto; display: block; border-radius: var(--radius); filter: brightness(.96);
+             transition: filter .25s, transform .3s cubic-bezier(.2,.9,.3,1.15), box-shadow .3s;
+             background: #0b0b0b; }
+.frame .date { font-family: var(--mono); font-size: 9px; letter-spacing: .2em; color: #45423c; margin: 7px 0 0 4px; }
+.frame:hover img, .frame:focus-visible img { transform: scale(1.12); animation: glowpulse 2.4s ease-in-out .25s infinite; }
+#grid:hover .frame:not(:hover) { opacity: .32; }
+.frame:hover .edge, .frame:focus-visible .edge { color: var(--safelight); }
+
+/* evaluation aid: mark DSCF9836 */
+body.mark .frame[data-id="DSCF9836"] img { outline: 2px dashed var(--safelight); outline-offset: 3px; }
+
+.lightbox { position: fixed; inset: 0; z-index: 100; background: rgba(10,10,10,.97);
+  display: none; flex-direction: column; align-items: center; justify-content: center; cursor: zoom-out; }
+.lightbox.open { display: flex; }
+.lightbox img { max-width: 92vw; max-height: 84vh; display: block; border-radius: var(--radius); }
+.lightbox .meta { margin-top: 18px; font-family: var(--mono); font-size: 11px; letter-spacing: .18em; color: var(--ink-dim); }
+.lightbox .meta b { color: var(--safelight); font-weight: normal; }
+
+@media (max-width: 700px) {
+  header { padding: 18px 16px; flex-wrap: wrap; gap: 8px; }
+  #controls { padding: 4px 16px 14px; gap: 14px; }
+  .roll { padding: 8px 14px 28px; }
+}
+</style>
+</head>
+<body class="mark">
+<header>
+  <div class="title">HALF-LIGHT&nbsp;&nbsp;—&nbsp;&nbsp;ARCHIVE&nbsp;&nbsp;(MOCKUP)</div>
+  <a href="https://half-light.pages.dev/contact.html" target="_blank">CURRENT&nbsp;LIVE&nbsp;SHEET&nbsp;&rarr;</a>
+</header>
+<div id="controls">
+  <div class="grp"><span class="lbl">FLOW</span>
+    <button id="bRows" class="on">ROWS</button><button id="bCols">COLUMNS</button></div>
+  <div class="grp"><span class="lbl">ORDER</span>
+    <button data-order="current">CURRENT</button><button data-order="serpentine">SEAM-FIXED</button><button data-order="darkfirst" class="on">DARK-FIRST</button></div>
+  <div class="grp"><label><input type="checkbox" id="cbMark" checked> MARK 9836</label></div>
+</div>
+<div class="roll">
+  <h2 id="rollTitle">THE SHEET — EMBER TO ICE</h2>
+  <div id="grid"></div>
+</div>
+<div class="lightbox" id="lb"><img id="lbimg" alt=""><div class="meta" id="lbmeta"></div></div>
+<script src="photos.js"></script>
+<script>
+(() => {
+  const BASE = 'https://half-light.pages.dev/';
+  const P = window.MOCK.photos;
+  const grid = document.getElementById('grid');
+  let flow = 'rows', order = 'darkfirst';
+
+  const frameHTML = p =>
+    '<div class="frame" tabindex="0" data-id="' + p.id + '">' +
+    '<div class="edge">' + p.frame + 'A &middot; HALF-LIGHT 400</div>' +
+    '<img src="' + BASE + p.thumb + '" loading="lazy" width="' + p.w + '" height="' + p.h + '">' +
+    '<div class="date">' + p.date + '</div></div>';
+
+  function build() {
+    const ids = window.MOCK[order];
+    const photos = ids.map(id => P[id]);
+    grid.className = flow;
+    if (flow === 'cols') {
+      const n = Math.max(2, Math.min(6, Math.floor(grid.clientWidth / 250)));
+      grid.style.columnCount = n;
+      grid.innerHTML = photos.map(frameHTML).join('');
+    } else {
+      grid.style.columnCount = '';
+      const n = Math.max(2, Math.min(6, Math.floor(grid.clientWidth / 250)));
+      const cols = Array.from({ length: n }, () => ({ h: 0, html: '' }));
+      photos.forEach(p => {                     // shortest-column placement ≈ row-major reading
+        const c = cols.reduce((a, b) => b.h < a.h ? b : a);
+        c.html += frameHTML(p);
+        c.h += p.h / p.w + 0.18;                // 0.18 ≈ label rows, in column-width units
+      });
+      grid.innerHTML = cols.map(c => '<div class="col">' + c.html + '</div>').join('');
+    }
+  }
+
+  const seg = (btnOn, btnOff, fn) => {
+    btnOn.addEventListener('click', () => { btnOn.classList.add('on'); btnOff.classList.remove('on'); fn(); build(); });
+  };
+  const b = id => document.getElementById(id);
+  seg(b('bRows'), b('bCols'), () => flow = 'rows');
+  seg(b('bCols'), b('bRows'), () => flow = 'cols');
+  const orderBtns = [...document.querySelectorAll('[data-order]')];
+  orderBtns.forEach(btn => btn.addEventListener('click', () => {
+    orderBtns.forEach(o => o.classList.toggle('on', o === btn));
+    order = btn.dataset.order;
+    build();
+  }));
+  b('cbMark').addEventListener('change', e => document.body.classList.toggle('mark', e.target.checked));
+
+  let rw = innerWidth;
+  addEventListener('resize', () => { if (Math.abs(innerWidth - rw) > 60) { rw = innerWidth; build(); } });
+
+  const lb = document.getElementById('lb');
+  document.addEventListener('click', e => {
+    const f = e.target.closest('.frame');
+    if (!f) return;
+    const p = P[f.dataset.id];
+    document.getElementById('lbimg').src = BASE + p.full;
+    document.getElementById('lbmeta').innerHTML = '<b>No. ' + p.frame + '</b> &middot; ' + p.date + ' &middot; X100T';
+    lb.classList.add('open');
+  });
+  lb.addEventListener('click', e => { e.stopPropagation(); lb.classList.remove('open'); });
+  addEventListener('keydown', e => { if (e.key === 'Escape') lb.classList.remove('open'); });
+
+  build();
+})();
+</script>
+</body>
+</html>

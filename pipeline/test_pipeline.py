@@ -324,11 +324,28 @@ def test_compose_rules():
     assert {"type": "solo", "ids": ["DSCF0003"], "mask": None} in reel
     assert {"type": "diptych", "ids": ["DSCF0004", "DSCF0005"], "mask": None} in reel
     assert {"type": "solo", "ids": ["DSCF0006"], "mask": "iris"} in reel
-    assert out["sheet"][0] == "DSCF0007"                     # band 0, darkest first
+    assert out["sheet"] == ["DSCF0007", "DSCF0001", "DSCF0002", "DSCF0003",
+                            "DSCF0004", "DSCF0005", "DSCF0006", "DSCF0008"]  # night rack, then serpentine
     assert compose.compose(photos, {"reel_size": 14}, {}) == out                       # deterministic
     out2 = compose.compose(photos, {"reel_size": 14}, {"DSCF0006": {"skip": True}})
     assert all("DSCF0006" not in s["ids"] for s in out2["reel"])
     print("ok test_compose_rules")
+
+def test_compose_sheet_dark_first():
+    from pipeline import compose
+    photos = [
+        _mk(1, "2026.05.01", 3, 2, 0, .3, .30),   # warm mid
+        _mk(2, "2026.05.02", 3, 2, 2, .8, .04),   # near-black cool -> night rack despite band 2
+        _mk(3, "2026.05.03", 3, 2, 1, .3, .45),   # green
+        _mk(4, "2026.05.04", 3, 2, 1, .3, .55),   # green, lighter
+        _mk(5, "2026.05.05", 3, 2, 2, .4, .50),   # cool
+        _mk(6, "2026.05.06", 3, 2, 0, .3, .60),   # warm light
+    ]
+    sheet = compose.compose(photos, {"reel_size": 14}, {})["sheet"]
+    # night rack first (darkness beats hue), then warm asc, green DESC (serpentine), cool asc
+    assert sheet == ["DSCF0002", "DSCF0001", "DSCF0006",
+                     "DSCF0004", "DSCF0003", "DSCF0005"]
+    print("ok test_compose_sheet_dark_first")
 
 def test_compose_diptych_hue_pairing_nonadjacent():
     from pipeline import compose
