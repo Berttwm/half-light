@@ -29,12 +29,32 @@
   const holder = document.getElementById('rolls');
   const sec = document.createElement('section');
   sec.className = 'roll';
-  sec.innerHTML = '<h2>THE SHEET — EMBER TO ICE, DARK TO LIGHT</h2><div class="strip">' + photos.map(p =>
+  sec.innerHTML = '<h2>THE SHEET — EMBER TO ICE, DARK TO LIGHT</h2><div class="strip"></div>';
+  holder.appendChild(sec);
+  const strip = sec.querySelector('.strip');
+
+  const frameHTML = p =>
     '<div class="frame" tabindex="0" data-id="' + p.id + '">' +
     '<div class="edge">' + p.frame + 'A &middot; ' + TITLE + ' 400</div>' +
-    '<img src="' + p.thumb + '" loading="lazy" style="background:#0b0b0b url(' + p.latent + ') center/cover">' +
-    '<div class="date">' + p.date + '</div></div>').join('') + '</div>';
-  holder.appendChild(sec);
+    '<img src="' + p.thumb + '" width="' + p.w + '" height="' + p.h + '" loading="lazy" style="background:#0b0b0b url(' + p.latent + ') center/cover">' +
+    '<div class="date">' + p.date + '</div></div>';
+
+  // rows-flow masonry: place each photo into the currently-shortest column so the
+  // DARK-FIRST order still reads left-to-right; heights tracked as h/w ratios
+  // (+0.18 per card for the two label rows, in column-width units).
+  function layout() {
+    const n = Math.max(2, Math.min(6, Math.floor(strip.clientWidth / 250)));
+    const cols = Array.from({ length: n }, () => ({ h: 0, html: '' }));
+    photos.forEach(p => {
+      const c = cols.reduce((a, b) => b.h < a.h ? b : a);
+      c.html += frameHTML(p);
+      c.h += p.h / p.w + 0.18;
+    });
+    strip.innerHTML = cols.map(c => '<div class="col">' + c.html + '</div>').join('');
+  }
+  let rw = innerWidth;
+  addEventListener('resize', () => { if (Math.abs(innerWidth - rw) > 60) { rw = innerWidth; layout(); } });
+  layout();
 
   const lb = document.getElementById('lb');
   const lbimg = document.getElementById('lbimg');
