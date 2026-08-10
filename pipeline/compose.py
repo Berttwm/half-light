@@ -49,5 +49,11 @@ def compose(photos, cfg, overrides):
     reel_scenes = [{"type": "solo", "ids": [hero["id"]], "mask": "letterbox"}] + scenes
     if closer:
         reel_scenes.append({"type": "solo", "ids": [closer["id"]], "mask": None})
-    sheet = [p["id"] for p in sorted(photos, key=lambda p: (p["band"], p["lum"], p["frame"]))]
+    # sheet: night rack first (hue is imperceptible near black), then ember->ice with
+    # serpentine luminance per band so band seams stay continuous. 0.25 sits in the
+    # archive's natural luminance gap (nothing between 0.161 and 0.347).
+    dark = sorted((p for p in photos if p["lum"] < 0.25), key=lambda p: (p["lum"], p["frame"]))
+    rest = sorted((p for p in photos if p["lum"] >= 0.25),
+                  key=lambda p: (p["band"], p["lum"] if p["band"] % 2 == 0 else -p["lum"], p["frame"]))
+    sheet = [p["id"] for p in dark + rest]
     return {"reel": reel_scenes, "sheet": sheet}
