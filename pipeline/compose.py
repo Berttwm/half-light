@@ -57,3 +57,47 @@ def compose(photos, cfg, overrides):
                   key=lambda p: (p["band"], p["lum"] if p["band"] % 2 == 0 else -p["lum"], p["frame"]))
     sheet = [p["id"] for p in dark + rest]
     return {"reel": reel_scenes, "sheet": sheet}
+
+
+def assign_quotes(reel, photos, quotes):
+    """Bind config quotes to reel scenes. Kept OUT of compose() so its scene dicts stay
+    byte-identical (the reel contract is asserted by exact equality in the tests).
+
+    The reel rotates to the newest photos on every sync, so nothing here may reference a
+    photo id: a quote earns its frame by rule. One quote may carry "prefer": "extreme" and
+    lands on the most extreme-luminance frame (the darkest or brightest print in the reel);
+    the rest space themselves evenly through what is left. Solo scenes only — a margin quote
+    beside a diptych has no margin to live in — and never the hero, which opens alone.
+    """
+    if not reel or not quotes:
+        return []
+    by_id = {p["id"]: p for p in photos}
+    elig = [i for i, s in enumerate(reel)
+            if s["type"] == "solo" and i > 0 and s["ids"][0] in by_id]
+    if not elig:
+        return []
+    picks, taken = [], set()
+    for q in (q for q in quotes if q.get("prefer") == "extreme"):
+        free = [i for i in elig if i not in taken]
+        if not free:
+            break
+        i = max(free, key=lambda i: (abs(by_id[reel[i]["ids"][0]]["lum"] - 0.5), -i))
+        taken.add(i)
+        picks.append((i, q["text"]))
+    free = [i for i in elig if i not in taken]
+    rest_q = [q for q in quotes if q.get("prefer") != "extreme"]
+    used = set()
+    for k, q in enumerate(rest_q):
+        if len(used) >= len(free):
+            break                                              # more quotes than frames: drop the extras
+        pos = max(0, min(len(free) - 1,
+                         int(round((k + 1) * len(free) / (len(rest_q) + 1.0))) - 1))
+        while pos in used:                                     # nudge off a taken slot, forward then back
+            pos = pos + 1 if pos + 1 < len(free) and (pos + 1) not in used else pos - 1
+            if pos < 0:
+                pos = next(x for x in range(len(free)) if x not in used)
+        used.add(pos)
+        picks.append((free[pos], q["text"]))
+    picks.sort()
+    return [{"scene": i, "text": t, "side": "left" if k % 2 == 0 else "right"}
+            for k, (i, t) in enumerate(picks)]

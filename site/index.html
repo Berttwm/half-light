@@ -9,256 +9,468 @@
 <meta property="og:image" content="https://half-light.pages.dev/photos/og.jpg">
 <link rel="stylesheet" href="assets/site.css">
 <style>
-  #bg { position: fixed; inset: 0; background: var(--ground); transition: background-color 1.2s ease; }
-  #bg::after { content: ''; position: absolute; inset: 0; background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,.55) 100%); }
-  #glowA, #glowB { position: fixed; inset: 0; opacity: 0; transition: opacity 1.2s ease; pointer-events: none; }
+  /* ================= the lit room =================
+     Every layer here is derived from the photograph currently in the gate: its own colours,
+     its own light level. Nothing animates but transform and opacity. */
+  #base { position: fixed; inset: 0; background: var(--ground); }
+  #envhost { position: fixed; inset: -10vh -6vw; will-change: transform; }
+  .env { position: absolute; inset: 0; opacity: 0; }
+  .env.in  { animation: envIn 1.3s cubic-bezier(.16,.55,.24,1) both; }
+  .env.out { animation: envOut 1.15s ease forwards; }
+  @keyframes envIn  { from { opacity: 0; transform: translateY(calc(5vh * var(--dir, 1))); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes envOut { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(calc(-4vh * var(--dir, 1))); } }
+
+  /* the echo: the print's own colour field, dimmed and saturated so a bright frame tints the
+     room instead of washing it grey */
+  .echowrap { position: absolute; inset: 0;
+    -webkit-mask-image: radial-gradient(140% 115% at 50% 45%, #000 55%, transparent 92%);
+    mask-image: radial-gradient(140% 115% at 50% 45%, #000 55%, transparent 92%); }
+  .echowrap .echo { position: absolute; inset: -35%; background-size: cover; background-position: center;
+    animation: echospin 95s linear infinite; }
+  @keyframes echospin { from { transform: scale(1.7) rotate(0deg); } to { transform: scale(1.7) rotate(360deg); } }
+
+  /* the blobs: three colours sampled from the photograph, drifting forever. The wrapper glides to
+     each photo's own arrangement; the plates crossfade. Positions never jump. */
+  .aurw { position: absolute; width: 78vmax; height: 78vmax; transition: transform 1.8s ease; will-change: transform; }
+  .aurw.w1 { left: -16%; top: 0%; }
+  .aurw.w2 { right: -18%; top: 18%; }
+  .aurw.w3 { left: 12%; bottom: -26%; }
+  .aur { position: absolute; inset: 0; border-radius: 50%; will-change: transform; }
+  .aur .g { position: absolute; inset: 0; border-radius: 50%; opacity: 0; transition: opacity 1.6s ease; }
+  .aur .g.on { opacity: 1; }
+  .aurw.w1 .aur { animation: aurA 38s ease-in-out infinite alternate; }
+  .aurw.w2 .aur { animation: aurB 47s ease-in-out infinite alternate; }
+  .aurw.w3 .aur { animation: aurC 55s ease-in-out infinite alternate; }
+  @keyframes aurA { from { transform: translate(0,0) scale(1); } to { transform: translate(16%, 12%) scale(1.3); } }
+  @keyframes aurB { from { transform: translate(0,0) scale(1.25); } to { transform: translate(-14%, -9%) scale(.95); } }
+  @keyframes aurC { from { transform: translate(0,0) scale(1); } to { transform: translate(12%, -14%) scale(1.35); } }
+
   #dust { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
   #dust span { position: absolute; border-radius: 50%; background: rgba(232,193,138,.55); animation: mote linear infinite; }
   @keyframes mote {
     0%   { transform: translate(0, 0); opacity: 0; }
-    12%  { opacity: var(--o); }
-    55%  { transform: translate(var(--sway), -18vh); opacity: var(--o); }
-    100% { transform: translate(calc(var(--sway) * -0.6), -34vh); opacity: 0; }
+    10%  { opacity: var(--o); }
+    45%  { transform: translate(var(--sway), -22vh); opacity: var(--o); }
+    75%  { transform: translate(calc(var(--sway) * -0.7), -38vh); opacity: calc(var(--o) * .7); }
+    100% { transform: translate(calc(var(--sway) * 0.4), -52vh); opacity: 0; }
   }
-  #scrim { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; z-index: 55; }
+  #vign { position: fixed; inset: 0; pointer-events: none; z-index: 49;
+    background: radial-gradient(ellipse 120% 105% at 50% 46%, transparent 66%, rgba(10,10,10,.46) 100%); }
+
   nav { position: fixed; top: 0; left: 0; right: 0; z-index: 60; display: flex; justify-content: space-between; padding: 22px 30px; }
   nav .title { font-family: var(--serif); font-style: italic; font-size: 17px; letter-spacing: .06em; }
   nav a { font-family: var(--mono); font-size: 10px; letter-spacing: .28em; color: var(--ink-dim); }
   nav a:hover { color: var(--safelight); }
 
-  .slide { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; opacity: 0; visibility: hidden; pointer-events: none; }
-  .slide .mover { position: relative; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; will-change: transform; }
-  .slide .fill { position: absolute; inset: -80px; background-size: cover; background-position: center; filter: blur(70px) brightness(.34) saturate(1.05); }
+  /* ================= scenes =================
+     Scroll drives a continuous playhead; prints ride over one another as it moves. The incoming
+     print is opaque before it crosses the outgoing one — they never blend into a double exposure. */
+  .scene { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    opacity: 0; visibility: hidden; perspective: 1100px; }
+  .scene .mover { display: flex; align-items: center; justify-content: center; gap: 4vw;
+    will-change: transform; transform-style: preserve-3d; }
 
-  /* every photograph lives in the same negative frame — one consistent presentation */
-  .neg { position: relative; background: #0a0a0a; padding: 22px 30px 34px; box-shadow: 0 24px 70px rgba(0,0,0,.65); }
-  .neg::before, .neg::after {
-    content: ''; position: absolute; top: 8px; bottom: 8px; width: 12px;
+  /* the film rebate: emulsion tooth, sprockets, edge print */
+  .neg { position: relative; background-color: #0a0a0a; padding: 20px 28px 32px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.045'/%3E%3C/svg%3E");
+    box-shadow: 0 24px 70px rgba(0,0,0,.65), inset 0 0 20px rgba(0,0,0,.5); }
+  .neg::before, .neg::after { content: ''; position: absolute; top: 8px; bottom: 8px; width: 12px;
     background-image: radial-gradient(circle, var(--ground) 2.6px, transparent 3.2px);
-    background-size: 12px 22px; background-repeat: repeat-y;
-  }
-  .neg::before { left: 9px; }
-  .neg::after { right: 9px; }
-  .neg .edge { position: absolute; bottom: 11px; left: 30px; right: 30px; display: flex; justify-content: space-between; gap: 10px; font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; color: #93763f; white-space: nowrap; }
-  .ch { display: inline-block; will-change: transform; }
+    background-size: 12px 22px; background-repeat: repeat-y; }
+  .neg::before { left: 8px; } .neg::after { right: 8px; }
+  .neg .edge { position: absolute; bottom: 10px; left: 28px; right: 28px; display: flex; justify-content: space-between;
+    gap: 10px; font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; color: #93763f; white-space: nowrap; }
+  .win { position: relative; overflow: hidden; height: min(76vh, calc(82vw * var(--ir))); aspect-ratio: calc(1 / var(--ir)); }
+  .win img { position: absolute; left: -7%; top: -7%; width: 114%; height: 114%; object-fit: cover; will-change: transform; }
+  .hasq .win { height: min(68vh, calc(56vw * var(--ir))); }
+  .pair { display: flex; align-items: center; gap: 2vw; }
+  .pair .win { height: min(60vh, calc(34vw * var(--ir))); }
 
-  /* the window: overflow-hidden frame, oversized image inside for inner parallax (Codrops 2019 recipe) */
-  .win { position: relative; overflow: hidden; }
-  .win img { position: absolute; left: -8%; top: -8%; width: 116%; height: 116%; object-fit: cover; will-change: transform; }
-  .solo .win { height: min(66vh, calc(78vw * var(--ir))); aspect-ratio: calc(1 / var(--ir)); }
-  .pair { position: relative; display: flex; gap: 2vw; align-items: center; }
-  .pair .neg .win { height: min(60vh, calc(34vw * var(--ir))); aspect-ratio: calc(1 / var(--ir)); }
-  .txtscene .txt { text-align: center; max-width: 94vw; position: relative; }
-  .txtscene h1 { font-size: clamp(34px, 6vw, 58px); font-weight: normal; letter-spacing: .3em; }
-  .txtscene .line { font-family: var(--serif); font-style: italic; font-size: clamp(15px, 1.9vw, 24px); letter-spacing: .05em; color: var(--ink); line-height: 1.7; margin-top: 34px; white-space: nowrap; }
-  .txtscene .mono { font-size: 10px; }
+  /* the quote: on the lit ground beside the print, never over it. Its words surface as the scene
+     scrolls in, so a print is never on screen without its line underway. */
+  .sideq { max-width: 23ch; font-family: var(--serif); font-style: italic;
+    font-size: clamp(17px, 2.1vw, 29px); line-height: 1.6; letter-spacing: .04em; color: var(--ink); }
+  .sideq.right { text-align: right; }
+  .sideq .w { display: inline-block; opacity: 0; filter: blur(6px); transform: translateY(10px);
+    transition: opacity .55s ease, filter .55s ease, transform .55s ease; }
+  .sideq .w.on { opacity: 1; filter: blur(0); transform: translateY(0); }
+  .sideq .w.on:last-of-type { color: var(--safelight); }
 
-  #counter { position: fixed; right: 30px; bottom: 26px; z-index: 60; font-family: var(--mono); font-size: 10px; letter-spacing: .25em; color: var(--ink-dim); transition: opacity .6s; }
-  #rail { position: fixed; right: 14px; top: 15vh; bottom: 15vh; width: 1px; background: #2a2a2a; z-index: 60; }
-  #dot { position: absolute; left: -2px; width: 5px; height: 5px; border-radius: 50%; background: var(--safelight); }
-  .hint { position: fixed; bottom: 26px; left: 0; right: 0; text-align: center; z-index: 60; transition: opacity .8s; }
-  .hint.gone { opacity: 0; }
+  .txt { text-align: center; max-width: 94vw; }
+  .txt h1 { font-size: clamp(34px, 6vw, 58px); font-weight: normal; letter-spacing: .3em; }
+  .txt .line { font-family: var(--serif); font-style: italic; font-size: clamp(15px, 1.9vw, 24px);
+    letter-spacing: .05em; line-height: 1.7; margin-top: 34px; }
+  .txt .mono { display: block; margin-top: 26px; }
+  .txt .ch { display: inline-block; will-change: transform; }
+  .txt .wd { display: inline-block; white-space: nowrap; }   /* letters are separate bodies: keep words whole */
+
+  #prog { position: fixed; left: 0; bottom: 0; height: 2px; width: 0; background: var(--safelight); opacity: .75; z-index: 60; }
+  #counter { position: fixed; right: 30px; bottom: 22px; z-index: 60; font-family: var(--mono); font-size: 10px;
+    letter-spacing: .25em; color: var(--ink-dim); }
+  #hint { position: fixed; bottom: 22px; left: 0; right: 0; text-align: center; z-index: 60; transition: opacity .8s; }
+  #hint.gone { opacity: 0; }
+  #spacer { width: 1px; }
 
   @media (max-width: 700px) {
     nav { padding: 16px 18px; }
-    .neg { padding: 12px 18px 24px; }
-    .neg::before { left: 5px; } .neg::after { right: 5px; }
-    .neg .edge { left: 18px; right: 18px; font-size: 7px; }
-    .solo .win { height: min(56vh, calc(88vw * var(--ir))); }
+    .neg { padding: 10px 16px 22px; }
+    .neg::before { left: 4px; } .neg::after { right: 4px; }
+    .neg .edge { left: 16px; right: 16px; font-size: 7px; }
+    .win { height: min(58vh, calc(92vw * var(--ir))); }
+    .hasq .win { height: min(48vh, calc(86vw * var(--ir))); }
     .pair { gap: 8px; }
-    .pair .neg .win { height: min(50vh, calc(38vw * var(--ir))); }
-    .txtscene .line { white-space: normal; }
-    #rail { right: 8px; } #counter { right: 20px; }
+    .pair .win { height: min(48vh, calc(40vw * var(--ir))); }
+    .scene .mover { flex-direction: column; gap: 20px; }
+    .sideq, .sideq.right { max-width: 82vw; text-align: center; font-size: 16px; order: 2; }
+    .txt h1 { font-size: clamp(24px, 7.4vw, 40px); letter-spacing: .16em; }
+    .txt .line { font-size: clamp(13px, 3.8vw, 18px); margin-top: 24px; }
   }
 </style>
 </head>
 <body>
-<div id="bg"></div>
-<div id="glowA"></div>
-<div id="glowB"></div>
+<div id="base"></div>
+<div id="envhost"></div>
 <div id="dust"></div>
+<div id="vign"></div>
 <nav>
   <div class="title" id="navTitle"></div>
   <a href="contact.html">CONTACT&nbsp;SHEET&nbsp;&rarr;</a>
 </nav>
-<div id="screen"></div>
-<div id="scrim"></div>
-<div id="rail"><div id="dot"></div></div>
+<div id="stage"></div>
+<div id="prog"></div>
 <div id="counter"></div>
-<div class="hint mono" id="hint">SCROLL TO BEGIN THE PROJECTION</div>
+<div id="hint" class="mono">SCROLL TO BEGIN THE PROJECTION</div>
 <div id="spacer"></div>
-<script src="assets/data.470f4a8519.js"></script>
+<script src="assets/data.a7a799f5f8.js"></script>
 <script>
 (() => {
-  const byId = window.PHOTOS;
-  const G = '#131313';
+  const P = window.PHOTOS, TITLE = window.META.title;
   const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const TITLE = window.META.title;                  // pseudonym, single source — a config.json swap propagates everywhere
+  const COARSE = matchMedia('(pointer: coarse)').matches;
   document.getElementById('navTitle').textContent = TITLE;
 
-  // ONE transition language for the reel (crossfade through black + continuous micro-zoom + inner parallax),
-  // with exactly two clip-mask set pieces: the letterbox open on the hero, the iris on the mirror shot.
-  // Scenes come from the composer (window.SCENES), bookended by data-driven intro/outro text cards.
-  const SCENES = [
-    { type: 'text', tint: G, scatter: true,
-      html: `<h1>${TITLE.toUpperCase()}</h1><p class="line">${window.META.intro_line}</p>` },
-    ...window.SCENES.map(s => ({ ...s })),
-    { type: 'text', tint: G,
-      html: '<p class="line">the roll continues</p><div class="mono" style="margin-top:22px">NEW FRAMES ARE DEVELOPED AS THEY ARE TAKEN</div>' },
+  // Scroll sets a playhead; everything reads from it. SEG is viewport-heights of scroll per scene —
+  // short, because no scroll distance is spent on an empty screen. Idle snap settles on a print.
+  const SEG = 0.78, LERP = 0.1;
+  const clamp = (n, a, b) => Math.min(b, Math.max(a, n));
+  const ease = p => p * p * (3 - 2 * p);
+
+  const QUOTES = {};                                  // window.SCENES index -> quote (see compose.assign_quotes)
+  (window.QUOTES || []).forEach(q => QUOTES[q.scene] = q);
+
+  const SC = [
+    { kind: 'text', html: `<h1>${TITLE.toUpperCase()}</h1><p class="line">${window.META.intro_line}</p>` },
+    ...window.SCENES.map((s, i) => ({ kind: 'photo', ids: s.ids, type: s.type, q: QUOTES[i] })),
+    { kind: 'text', html: '<p class="line">the roll continues</p><span class="mono">NEW FRAMES ARE DEVELOPED AS THEY ARE TAKEN</span>' },
   ];
-  const SEG = 1.15;
-  const LERP = 0.1;                                  // Recipe 1: inertia layer, f = 0.08-0.12
-  const ease = p => p * p * (3 - 2 * p);             // smoothstep ~ power1.inOut (0.45,0,0.55,1); monotonic — safe to scrub
+  const N = SC.length, N_PHOTOS = window.SCENES.length;
 
-  let gi = 0;
-  const neg = (p, full) => {
+  // ---- scenes ----
+  const stage = document.getElementById('stage');
+  const negHTML = p => {
     const n = p.frame.replace('No. ', '');
-    const edge = full
-      ? `<span>${TITLE.toUpperCase()} 400</span><span>${n}A&ensp;&middot;&ensp;${p.date}</span>`
-      : `<span>${n}A</span><span>${p.date}</span>`;
-    const plx = 32 + (gi++ * 13) % 26;               // Recipe 2: per-image parallax depth 32-58px
-    // lazy-loaded: no src yet — data-src is promoted in paint() once the scene nears view; the
-    // latent (tiny blurred) placeholder shows as a CSS background under the empty <img> until then.
-    return `<div class="neg"><div class="win" style="--ir:${(p.h / p.w).toFixed(4)}"><img data-src="${p.full}" data-plx="${plx}" style="background:url(${p.latent}) center/cover"></div><div class="edge">${edge}</div></div>`;
+    return `<div class="neg"><div class="win" style="--ir:${(p.h / p.w).toFixed(4)}">
+      <img data-src="${p.full}" alt="" style="background:url(${p.latent}) center/cover">
+      </div><div class="edge"><span>${TITLE.toUpperCase()} 400</span><span>${n}A&ensp;&middot;&ensp;${p.date}</span></div></div>`;
   };
-
-  const screen = document.getElementById('screen');
-  const els = SCENES.map(sc => {
-    const s = document.createElement('div');
-    const ps = (sc.ids || []).map(id => byId[id]);
-    sc.tint = sc.tint || ps[0].tint;
-    if (sc.type === 'text') {
-      s.className = 'slide txtscene';
-      s.innerHTML = `<div class="mover"><div class="txt">${sc.html}</div></div>`;
-      if (sc.scatter && !RM) {
-        s.querySelectorAll('h1, .line').forEach(node => {
-          node.innerHTML = node.innerHTML.split(/(<br>)/i).map(seg =>
-            /^<br>$/i.test(seg) ? seg : [...seg].map(c => c === ' ' ? ' ' : `<span class="ch">${c}</span>`).join('')
-          ).join('');
-        });
-        sc.chs = [...s.querySelectorAll('.ch')];
-      }
-    } else if (sc.type === 'solo') {
-      s.className = 'slide solo';
-      s.innerHTML = `<div class="fill" style="background-image:url(${ps[0].latent})"></div><div class="mover">${neg(ps[0], true)}</div>`;
-    } else if (sc.type === 'diptych') {
-      s.className = 'slide diptych';
-      s.innerHTML = `<div class="fill" style="background-image:url(${ps[0].latent})"></div><div class="mover"><div class="pair">` +
-        ps.map(p => neg(p, false)).join('') + `</div></div>`;
+  const els = SC.map((sc, i) => {
+    const el = document.createElement('div');
+    el.className = 'scene';
+    el.style.zIndex = 10 + i;                         // later scenes arrive over earlier ones
+    if (sc.kind === 'photo') {
+      const ps = sc.ids.map(id => P[id]).filter(Boolean);
+      const body = ps.length > 1
+        ? `<div class="pair">${ps.map(negHTML).join('')}</div>`
+        : negHTML(ps[0]);
+      const qH = sc.q ? `<div class="sideq ${sc.q.side}">` +
+        sc.q.text.split(' ').map(w => `<span class="w">${w}</span>`).join(' ') + `</div>` : '';
+      el.innerHTML = `<div class="mover${sc.q ? ' hasq' : ''}">` +
+        (sc.q && sc.q.side === 'left' ? qH + body : body + qH) + `</div>`;
+      sc.tintId = ps[0] ? ps[0].id : null;
+    } else {
+      el.innerHTML = `<div class="mover"><div class="txt">${sc.html}</div></div>`;
     }
-    screen.appendChild(s);
-    sc.imgs = [...s.querySelectorAll('.win img')];
-    sc.wins = [...s.querySelectorAll('.win')];
-    sc.edges = [...s.querySelectorAll('.edge')];
-    return s;
+    stage.appendChild(el);
+    sc.mover = el.querySelector('.mover');
+    sc.imgs = [...el.querySelectorAll('.win img')];
+    sc.ws = [...el.querySelectorAll('.sideq .w')];
+    if (i === 0) {                                    // the intro: each letter is its own body
+      el.querySelectorAll('h1, .line').forEach(node => {
+        node.innerHTML = node.textContent.split(' ').map(word =>
+          `<span class="wd">${[...word].map(c => `<span class="ch">${c}</span>`).join('')}</span>`).join(' ');
+      });
+      sc.chs = [...el.querySelectorAll('.ch')];
+    }
+    return el;
   });
 
-  const spacer = document.getElementById('spacer');
-  const counter = document.getElementById('counter');
-  const dot = document.getElementById('dot');
-  const hint = document.getElementById('hint');
-  const bg = document.getElementById('bg');
-  const scrim = document.getElementById('scrim');
-  const clamp = (n, a, b) => Math.min(b, Math.max(a, n));
+  // ---- the room's colours, sampled from each photograph itself ----
+  const rgbHsl = (r, g, b) => {
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn;
+    let h = 0, s = 0;
+    if (d > 0.0001) {
+      s = d / (1 - Math.abs(2 * l - 1));
+      h = mx === r ? ((g - b) / d + (g < b ? 6 : 0)) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      h *= 60;
+    }
+    return [h, s * 100, l * 100];
+  };
+  const hexHsl = hex => {
+    const n = parseInt(hex.slice(1), 16);
+    return rgbHsl((n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255);
+  };
+  const palCache = {};
+  function samplePalette(p, cb) {                     // the latent is ~64px: this costs nothing
+    if (palCache[p.id] !== undefined) return cb(palCache[p.id]);
+    const img = new Image();
+    img.onload = () => {
+      let top = null;
+      try {
+        const c = document.createElement('canvas'); c.width = c.height = 32;
+        const x = c.getContext('2d');
+        x.drawImage(img, 0, 0, 32, 32);
+        const data = x.getImageData(0, 0, 32, 32).data;
+        const buckets = Array.from({ length: 24 }, () => ({ w: 0, r: 0, g: 0, b: 0 }));
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i] / 255, g = data[i + 1] / 255, b = data[i + 2] / 255;
+          const mx = Math.max(r, g, b), d = mx - Math.min(r, g, b);
+          if (mx < .06 || d < .045) continue;         // near-black and near-grey carry no room colour
+          let h = mx === r ? ((g - b) / d + (g < b ? 6 : 0)) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+          h *= 60;
+          const w = Math.pow(d, 1.7) * (0.35 + mx * 0.65);   // a small vivid area beats a large washed one
+          const k = Math.floor(((h % 360) + 360) % 360 / 15);
+          buckets[k].w += w; buckets[k].r += r * w; buckets[k].g += g * w; buckets[k].b += b * w;
+        }
+        const ranked = buckets.filter(b => b.w > 0).sort((a, b) => b.w - a.w);
+        top = [];
+        for (const b of ranked) {
+          const c2 = rgbHsl(b.r / b.w, b.g / b.w, b.b / b.w);
+          if (!top.length) top.push(c2);
+          else if (Math.abs(((c2[0] - top[0][0]) + 540) % 360 - 180) > 28) { top.push(c2); break; }
+        }
+        if (!top.length) top = null;
+      } catch (e) { top = null; }                     // canvas tainted or unavailable: fall back to the tint
+      palCache[p.id] = top;
+      cb(top);
+    };
+    img.onerror = () => { palCache[p.id] = null; cb(null); };
+    img.src = p.latent;
+  }
 
-  const glows = [document.getElementById('glowA'), document.getElementById('glowB')];
-  let gActive = 0, gTint = '';
-  function setGlow(tint) {
-    if (tint === gTint) return;
-    gTint = tint;
-    const n = parseInt(tint.slice(1), 16), up = c => Math.min(255, Math.round(c * 3.1));
-    const col = `rgba(${up(n >> 16 & 255)}, ${up(n >> 8 & 255)}, ${up(n & 255)}, .22)`;
-    gActive ^= 1;
-    glows[gActive].style.background = `radial-gradient(ellipse 95% 58% at 50% -12%, ${col}, transparent 62%)`;
-    glows[gActive].style.opacity = 1;
-    glows[gActive ^ 1].style.opacity = 0;
+  function roomColors(sc, doms) {
+    if (sc.kind !== 'photo' || !sc.tintId) {
+      return { cs: [[33, 42, 26, .5], [153, 34, 22, .34], [273, 30, 20, .3]], dim: .8, h: 33, s: 40, l: 28 };
+    }
+    const p = P[sc.tintId];
+    // brightest room for mid-toned frames, receding at both extremes: a blazing print and a near-black
+    // one both want the room to step back. Never fully black — a hint of light always remains.
+    const ext = Math.min(1, Math.abs(p.lum - .34) / .38);
+    const dim = clamp((.46 + (1 - ext) * .42) * .9, .40, .8);
+    let d1, d2;
+    if (doms && doms.length) { d1 = doms[0]; d2 = doms[1] || [(d1[0] + 35) % 360, d1[1], d1[2]]; }
+    else { const t = hexHsl(p.tint); d1 = t; d2 = [(t[0] + 35) % 360, t[1], t[2]]; }
+    const S = v => clamp(v * 1.35, 38, 78) * (0.75 + dim * .25);
+    const L = v => clamp(v * 1.5 + 12, 22, 50) * dim;
+    const seed = parseInt(p.frame.replace(/\D/g, ''), 10) || 0;   // stable per frame: near-twin photos still differ
+    const jit = ((seed * 37) % 62) - 31;
+    const comp = (d1[0] + 180 + jit * .5 + 360) % 360;
+    const av = 1 + (((seed * 53) % 24) - 12) / 100;
+    return {
+      cs: [
+        [d1[0], S(d1[1]), L(d1[2]), (.58 * dim + .1) * av],
+        [d2[0], S(d2[1]) * .9, L(d2[2]) * .95, (.44 * dim + .08) / av],
+        [comp, clamp(S(d1[1]) * .8, 32, 60), L(d1[2]) * .85, (.36 * dim + .06) * av * .7],
+      ],
+      dim, h: d1[0], s: S(d1[1]), l: L(d1[2]),
+    };
+  }
+
+  const envhost = document.getElementById('envhost');
+  const gstr = c => `radial-gradient(circle, hsla(${c[0].toFixed(0)},${c[1].toFixed(0)}%,${c[2].toFixed(0)}%,${c[3].toFixed(2)}) 0%, transparent 64%)`;
+  let aurHost = null, aurWraps = null, aurBlobs = null, aurFlip = false;
+  function ensureAurora() {
+    if (aurHost) return;
+    aurHost = document.createElement('div');
+    aurHost.className = 'env';
+    aurHost.style.opacity = 1;
+    aurHost.style.zIndex = 2;
+    aurHost.innerHTML = ['w1', 'w2', 'w3'].map(w =>
+      `<div class="aurw ${w}"><div class="aur"><div class="g ga"></div><div class="g gb"></div></div></div>`).join('');
+    envhost.appendChild(aurHost);
+    aurWraps = [...aurHost.querySelectorAll('.aurw')];
+    aurBlobs = [...aurHost.querySelectorAll('.aur')];
+  }
+  function auroraGeometry(sc) {
+    if (sc.kind !== 'photo' || !sc.tintId) return [[0, 0], [0, 0], [0, 0]];
+    const p = P[sc.tintId];
+    const seed = parseInt(p.frame.replace(/\D/g, ''), 10) || 0;
+    const j = n => ((seed * n) % 50) - 25;
+    return [
+      [(p.hue % 44) - 22 + j(7) * .7, p.lum * 40 - 14 + j(11) * .5],
+      [18 - p.sat * 48 + j(13) * .6, (p.hue % 30) - 15 + j(17) * .5],
+      [(p.hue % 26) - 13 + j(19) * .6, 10 - p.lum * 34 + j(23) * .5],
+    ];
+  }
+  function setAurora(colors, sc) {
+    ensureAurora();
+    aurFlip = !aurFlip;
+    const geo = auroraGeometry(sc);
+    aurBlobs.forEach((blob, i) => {
+      aurWraps[i].style.transform = `translate(${geo[i][0].toFixed(1)}%, ${geo[i][1].toFixed(1)}%)`;
+      const show = blob.querySelector(aurFlip ? '.gb' : '.ga');
+      const hide = blob.querySelector(aurFlip ? '.ga' : '.gb');
+      show.style.background = gstr(colors.cs[i]);
+      show.classList.add('on');
+      hide.classList.remove('on');
+    });
+  }
+  function envForEcho(sc) {
+    const env = document.createElement('div');
+    env.className = 'env';
+    const p = P[sc.tintId];
+    // the echo carries COLOUR, not brightness: a white-walled print would otherwise smear the room grey
+    const ext = Math.min(1, Math.abs(p.lum - .34) / .38);
+    const op = clamp(.22 + (1 - ext) * .24, .22, .46) * .8;
+    const sat = (1.35 + (1 - Math.min(1, p.sat * 2)) * .7).toFixed(2);
+    const bri = clamp(.62 - p.lum * .55, .2, .62).toFixed(2);
+    env.innerHTML = `<div class="echowrap"><div class="echo" style="background-image:url(${p.latent});` +
+      `opacity:${op.toFixed(2)};filter:saturate(${sat}) brightness(${bri})"></div></div>`;
+    return env;
+  }
+  let curEnv = null, envIdx = -1;
+  function setEnv(i, dir) {
+    if (i === envIdx) return;
+    envIdx = i;
+    const sc = SC[i];
+    const apply = doms => {
+      if (envIdx !== i) return;                       // a newer scene took over while sampling
+      setAurora(roomColors(sc, doms), sc);
+      const nxt = sc.kind === 'photo' && sc.tintId ? envForEcho(sc) : null;
+      if (nxt) {
+        nxt.style.setProperty('--dir', dir);
+        envhost.appendChild(nxt);
+        nxt.classList.add('in');
+      }
+      if (curEnv) {
+        const old = curEnv;
+        old.style.setProperty('--dir', dir);
+        old.classList.remove('in');
+        old.classList.add('out');
+        setTimeout(() => old.remove(), 1200);
+      }
+      curEnv = nxt;
+    };
+    if (sc.kind === 'photo' && sc.tintId) samplePalette(P[sc.tintId], apply); else apply(null);
   }
 
   const dust = document.getElementById('dust');
-  for (let k = 0; k < 14; k++) {
+  for (let k = 0, n = COARSE ? 16 : 28; k < n; k++) {
     const m = document.createElement('span');
-    const size = 1.5 + Math.random() * 2;
-    m.style.cssText = `left:${Math.random() * 100}%;top:${40 + Math.random() * 60}%;width:${size}px;height:${size}px;` +
-      `--o:${0.12 + Math.random() * 0.22};--sway:${(Math.random() * 44 - 22).toFixed(0)}px;` +
-      `animation-duration:${18 + Math.random() * 22}s;animation-delay:${-Math.random() * 30}s;`;
+    const near = k % 7 === 0;
+    const size = near ? 3.2 + Math.random() * 1.8 : 1.2 + Math.random() * 2;
+    m.style.cssText = `left:${Math.random() * 100}%;top:${30 + Math.random() * 70}%;width:${size}px;height:${size}px;` +
+      `--o:${near ? .10 + Math.random() * .1 : .12 + Math.random() * .24};--sway:${(Math.random() * 68 - 34).toFixed(0)}px;` +
+      `animation-duration:${12 + Math.random() * 22}s;animation-delay:${-Math.random() * 30}s;`;
     dust.appendChild(m);
   }
 
-  function layout() { spacer.style.height = (SCENES.length * SEG + 0.7) * innerHeight + 'px'; }
+  // ---- playhead ----
+  const spacer = document.getElementById('spacer');
+  const counter = document.getElementById('counter');
+  const prog = document.getElementById('prog');
+  const hint = document.getElementById('hint');
+  function layout() { spacer.style.height = ((N - 1) * SEG + 1) * innerHeight + 'px'; }
+  let tTarget = 0, tSmooth = 0, last = 0;
+  const readScroll = () => { tTarget = clamp(scrollY / (innerHeight * SEG), 0, N - 1); };
+
+  let mx = 0, my = 0, smx = 0, smy = 0;
+  let bootP = RM ? 1 : 0;
+  const bootStart = performance.now();
+  addEventListener('mousemove', e => { mx = e.clientX / innerWidth - .5; my = e.clientY / innerHeight - .5; });
 
   function paint(t) {
-    const vh = innerHeight;
-    if (t > 0.15) hint.classList.add('gone'); else hint.classList.remove('gone');
-    els.forEach((s, i) => {
-      const sc = SCENES[i];
-      const d = t - i, ad = Math.abs(d);
-      // promote lazy images a couple of scenes ahead of view so they're decoded by the time they're visible
-      if (ad < 2.5) sc.imgs.forEach(im => { if (!im.src) im.src = im.dataset.src; });
-      if (ad > 1.1) { s.style.visibility = 'hidden'; s.style.opacity = 0; return; }
-      s.style.visibility = 'visible';
-      // Recipe 4 dip-to-black: photos hand off through the scrim, hardly overlapping
-      s.style.opacity = clamp(1 - ad * 2.2, 0, 1);
-      const env = ease(clamp(1 - Math.max(0, ad - 0.1) * 1.6, 0, 1));   // eased scene envelope (Recipe 5)
-      const mover = s.querySelector('.mover');
-
-      if (sc.type === 'text') {
-        if (sc.chs) {
-          const p = 1 - env;
-          sc.chs.forEach((c, k) => {
-            c.style.transform = p < 0.004 ? '' :
-              `translate(${Math.sin(k * 12.9898) * 320 * p}px, ${Math.cos(k * 7.77) * 220 * p + p * p * 160}px) rotate(${Math.sin(k * 3.7) * 200 * p}deg)`;
-            c.style.opacity = 1 - p * 0.85;
-          });
-        } else {
-          const line = s.querySelector('.line');
-          if (line) line.style.opacity = env;
-        }
-        mover.style.transform = `translateY(${d * -vh * 0.05}px)`;
-        return;
+    if (t > 0.12) hint.classList.add('gone'); else hint.classList.remove('gone');
+    const lean = clamp(tTarget - t, -1, 1);
+    els.forEach((el, i) => {
+      const sc = SC[i], d = t - i, ad = Math.abs(d);
+      if (ad > 1.15) { el.style.visibility = 'hidden'; el.style.opacity = 0; return; }
+      el.style.visibility = 'visible';
+      sc.imgs.forEach(im => { if (!im.src) im.src = im.dataset.src; });
+      const nb = SC[i + 1];
+      if (nb && ad < 1) nb.imgs.forEach(im => { if (!im.src) im.src = im.dataset.src; });
+      // card over card: the incoming print is solid before it crosses the outgoing one
+      const oIn = ease(clamp((d + 1.0) / 0.5, 0, 1));
+      const oOut = 1 - ease(clamp((d - 0.18) / 0.5, 0, 1));
+      el.style.opacity = (oIn * oOut).toFixed(3);
+      const tilt = (RM || COARSE) ? ` rotateX(${(-lean * 2.6).toFixed(2)}deg)`
+        : ` rotateY(${(smx * 4.5).toFixed(2)}deg) rotateX(${(-smy * 3.2 - lean * 2.6).toFixed(2)}deg)`;
+      const shift = (RM || COARSE) ? '' : ` translate3d(${(smx * 22).toFixed(1)}px, ${(smy * 13).toFixed(1)}px, 0)`;
+      sc.mover.style.transform =
+        `translateY(${(d * -30).toFixed(2)}vh) scale(${(1 - Math.min(.07, ad * .06)).toFixed(3)})` + shift + tilt;
+      if (!RM) sc.imgs.forEach(im => {
+        im.style.transform = `translate3d(${(smx * -16).toFixed(1)}px, ${(d * -26 + smy * -9).toFixed(1)}px, 0)`;
+      });
+      if (sc.ws.length) {                             // the line surfaces with the print, word by word
+        const p = ease(clamp((d + 0.85) / 0.6, 0, 1));
+        sc.ws.forEach((w, k) => w.classList.toggle('on', p >= (k + .7) / sc.ws.length));
       }
-
-      // Recipe 4: continuous micro-zoom, 1.0 <-> 1.06, linear on lerped progress. No rotation, no filters.
-      const zoom = 1 + 0.06 * clamp(ad * 1.4, 0, 1);
-      mover.style.transform = `translateY(${d * -vh * 0.06}px) scale(${zoom})`;
-      // Recipe 2: inner parallax — the photo drifts inside its overflow-hidden window
-      sc.imgs.forEach(img => { if (!RM) img.style.transform = `translateY(${d * -img.dataset.plx}px)`; img.style.opacity = 1; });
-
-      // the two clip-mask set pieces (Recipe 3 / Gradogna: position, opacity, clip masks)
-      if (sc.mask === 'letterbox') {
-        const p = ease(clamp((0.5 - ad) / 0.35, 0, 1));
-        sc.wins[0].style.clipPath = `inset(${45 * (1 - p)}% 0 ${45 * (1 - p)}% 0)`;
-      } else if (sc.mask === 'iris') {
-        const p = ease(clamp((0.55 - ad) / 0.4, 0, 1));
-        sc.wins[0].style.clipPath = `circle(${18 + 82 * p}% at 50% 50%)`;
+      if (sc.chs) {                                   // the title assembles, then spirals away under the scroll
+        const exitP = ease(clamp(t / 0.85, 0, 1));
+        const NC = sc.chs.length;
+        sc.chs.forEach((c, k) => {
+          if (RM) { c.style.opacity = (1 - exitP).toFixed(3); return; }
+          if (exitP > 0.004) {
+            c.style.transform = `translate(${(Math.sin(k * 12.9898) * 340 * exitP).toFixed(1)}px, ` +
+              `${(Math.cos(k * 7.77) * 240 * exitP + exitP * exitP * 170).toFixed(1)}px) ` +
+              `rotate(${(Math.sin(k * 3.7) * 220 * exitP).toFixed(1)}deg)`;
+            c.style.opacity = (1 - exitP * .85).toFixed(3);
+            c.style.filter = '';
+          } else {                                    // stagger normalised by letter count, so every
+            const pk = ease(clamp(bootP * 1.3 - (k / NC) * .3, 0, 1));   // letter is settled at boot end
+            c.style.transform = pk >= 1 ? '' : `translateY(${(14 * (1 - pk)).toFixed(1)}px)`;
+            c.style.opacity = pk >= 1 ? '' : pk.toFixed(3);
+            c.style.filter = pk >= 1 ? '' : `blur(${(6 * (1 - pk)).toFixed(1)}px)`;
+          }
+        });
       }
-      // Recipe 7: the edge print lands a beat after the image
-      const ep = ease(clamp((0.32 - ad) / 0.22, 0, 1));
-      sc.edges.forEach(e => e.style.opacity = ep);
     });
-
-    // the scrim breathes up between scenes and clears on them (peak 0.45 at each handoff)
-    const frac = t - Math.floor(t);
-    scrim.style.opacity = (t > 0.3 && t < SCENES.length - 1.3)
-      ? clamp(0.45 * (1 - Math.abs(frac - 0.5) / 0.16), 0, 0.45) : 0;
-
-    const r = clamp(Math.round(t), 0, SCENES.length - 1);
-    bg.style.backgroundColor = SCENES[r].tint;
-    setGlow(SCENES[r].tint);
-    const total = window.SCENES.length;              // photo-scene count only (excludes the intro/outro cards)
-    counter.textContent = String(clamp(r, 1, total)).padStart(2, '0') + ' / ' + String(total).padStart(2, '0');
-    counter.style.opacity = (t > 0.6 && t < SCENES.length - 1.4) ? 1 : 0;
-    dot.style.top = clamp(t / (SCENES.length - 1), 0, 1) * 100 + '%';
+    const a = clamp(Math.round(t), 0, N - 1);
+    setEnv(a, tTarget >= t ? 1 : -1);
+    envhost.style.transform = `translate3d(${(smx * -0.024 * innerWidth).toFixed(1)}px, ` +
+      `${((t - a) * -0.05 * innerHeight + smy * -0.018 * innerHeight).toFixed(1)}px, 0)`;
+    counter.textContent = (a >= 1 && a <= N_PHOTOS)
+      ? String(a).padStart(2, '0') + ' / ' + String(N_PHOTOS).padStart(2, '0') : '';
+    prog.style.width = (t / (N - 1) * 100) + '%';
   }
 
-  // Recipe 1: scroll sets the target; the rendered value chases it through a lerp each frame
-  let tTarget = 0, tSmooth = 0, last = 0;
-  const readScroll = () => { tTarget = scrollY / (innerHeight * SEG); };
-  addEventListener('scroll', readScroll, { passive: true });
+  let snapT = null, quietT = null;
+  function snapNow() {                                // every rest lands on a print; the ride there is yours
+    if (RM) return;
+    const seg = innerHeight * SEG;
+    const dest = clamp(Math.round(scrollY / seg), 0, N - 1) * seg;
+    if (Math.abs(dest - scrollY) < 2) return;
+    const from = scrollY, delta = dest - from, t0 = performance.now();
+    cancelAnimationFrame(snapT);
+    (function tw(now) {
+      const p = Math.min(1, (now - t0) / 380), e2 = 1 - Math.pow(1 - p, 3);
+      scrollTo(0, from + delta * e2);
+      if (p < 1) snapT = requestAnimationFrame(tw);
+    })(t0);
+  }
+  addEventListener('scroll', () => { readScroll(); clearTimeout(quietT); quietT = setTimeout(snapNow, 240); }, { passive: true });
+  addEventListener('wheel', () => cancelAnimationFrame(snapT), { passive: true });
+  addEventListener('touchstart', () => cancelAnimationFrame(snapT), { passive: true });
   addEventListener('resize', () => { layout(); readScroll(); });
-  window.__render = t => { if (typeof t === 'number') { tTarget = tSmooth = t; } paint(tSmooth); };   // deterministic probe (rAF pauses in hidden panes)
+
+  window.__render = t => { if (typeof t === 'number') { scrollTo(0, t * innerHeight * SEG); tTarget = tSmooth = t; } paint(tSmooth); };
   (function tick(now) {
     const dt = Math.min(3, (now - last) / 16.7 || 1); last = now;
-    if (RM) { tSmooth = tTarget; } else { tSmooth += (tTarget - tSmooth) * (1 - Math.pow(1 - LERP, dt)); }
+    if (!RM) bootP = ease(Math.min(1, (now - bootStart) / 1400));
+    if (RM) { tSmooth = tTarget; smx = mx; smy = my; }
+    else {
+      tSmooth += (tTarget - tSmooth) * (1 - Math.pow(1 - LERP, dt));
+      smx += (mx - smx) * .07; smy += (my - smy) * .07;
+    }
     paint(tSmooth);
     requestAnimationFrame(tick);
   })(0);

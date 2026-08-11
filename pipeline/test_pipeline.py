@@ -331,6 +331,35 @@ def test_compose_rules():
     assert all("DSCF0006" not in s["ids"] for s in out2["reel"])
     print("ok test_compose_rules")
 
+def test_assign_quotes():
+    from pipeline import compose
+    photos = [
+        _mk(1, "2026.05.01", 3, 2, 0, .3, .10),
+        _mk(2, "2026.05.02", 3, 2, 0, .3, .30),
+        _mk(3, "2026.05.03", 3, 2, 0, .3, .40),
+        _mk(4, "2026.05.04", 2, 3, 0, .3, .50),
+        _mk(5, "2026.05.05", 2, 3, 0, .3, .60),
+        _mk(6, "2026.05.06", 2, 3, 2, .8, .35),
+        _mk(7, "2026.05.07", 3, 2, 0, .3, .05),   # darkest -> closer, and the extreme frame
+        _mk(8, "2026.05.08", 3, 2, 2, .4, .70),   # newest -> hero
+    ]
+    reel = compose.compose(photos, {"reel_size": 14}, {})["reel"]
+    qs = [{"text": "extreme one", "prefer": "extreme"}, {"text": "a"}, {"text": "b"}]
+    out = compose.assign_quotes(reel, photos, qs)
+    assert len(out) == 3, out
+    idx = [q["scene"] for q in out]
+    assert len(set(idx)) == 3 and idx == sorted(idx)              # distinct, in reel order
+    assert all(reel[i]["type"] == "solo" and i > 0 for i in idx)  # solos only, never the hero
+    ext = next(q for q in out if q["text"] == "extreme one")
+    assert reel[ext["scene"]]["ids"] == ["DSCF0007"]              # darkest print takes the flagged quote
+    assert [q["side"] for q in out] == ["left", "right", "left"]  # alternating margins
+    assert compose.assign_quotes(reel, photos, qs) == out         # deterministic
+    assert compose.assign_quotes(reel, photos, []) == []
+    assert compose.assign_quotes([], photos, qs) == []
+    many = compose.assign_quotes(reel, photos, [{"text": "q%d" % i} for i in range(40)])
+    assert len(many) == len(set(q["scene"] for q in many))        # never doubles up on one frame
+    print("ok test_assign_quotes")
+
 def test_compose_sheet_dark_first():
     from pipeline import compose
     photos = [
