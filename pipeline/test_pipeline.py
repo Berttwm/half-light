@@ -322,7 +322,9 @@ def test_compose_rules():
     assert {"type": "solo", "ids": ["DSCF0001"], "mask": None} in reel               # landscape run -> individual solos
     assert {"type": "solo", "ids": ["DSCF0002"], "mask": None} in reel
     assert {"type": "solo", "ids": ["DSCF0003"], "mask": None} in reel
-    assert {"type": "diptych", "ids": ["DSCF0004", "DSCF0005"], "mask": None} in reel
+    assert not any(s["type"] == "diptych" for s in reel)                             # one print per scene
+    assert {"type": "solo", "ids": ["DSCF0004"], "mask": None} in reel               # ex-diptych pair, now solos
+    assert {"type": "solo", "ids": ["DSCF0005"], "mask": None} in reel
     assert {"type": "solo", "ids": ["DSCF0006"], "mask": "iris"} in reel
     assert out["sheet"] == ["DSCF0007", "DSCF0001", "DSCF0002", "DSCF0003",
                             "DSCF0004", "DSCF0005", "DSCF0006", "DSCF0008"]  # night rack, then serpentine
@@ -344,8 +346,11 @@ def test_assign_quotes():
         _mk(8, "2026.05.08", 3, 2, 2, .4, .70),   # newest -> hero
     ]
     reel = compose.compose(photos, {"reel_size": 14}, {})["reel"]
-    qs = [{"text": "extreme one", "prefer": "extreme"}, {"text": "a"}, {"text": "b"}]
+    qs = [{"text": "extreme one", "emphasis": ["extreme"], "prefer": "extreme"},
+          {"text": "a"}, {"text": "b"}]
     out = compose.assign_quotes(reel, photos, qs)
+    assert out[[q["text"] for q in out].index("extreme one")]["emphasis"] == ["extreme"]
+    assert all("emphasis" in q for q in out)                       # always present, defaults to []
     assert len(out) == 3, out
     idx = [q["scene"] for q in out]
     assert len(set(idx)) == 3 and idx == sorted(idx)              # distinct, in reel order
@@ -376,23 +381,22 @@ def test_compose_sheet_dark_first():
                      "DSCF0004", "DSCF0003", "DSCF0005"]
     print("ok test_compose_sheet_dark_first")
 
-def test_compose_diptych_hue_pairing_nonadjacent():
+def test_compose_portraits_stay_solo():
     from pipeline import compose
     photos = [
-        _mk(1, "2026.05.01", 2, 3, 0, .3, .40, hue=10),    # A
-        _mk(2, "2026.05.02", 2, 3, 0, .3, .45, hue=170),   # B
-        _mk(3, "2026.05.03", 2, 3, 0, .3, .50, hue=12),    # C -> nearest hue to A, non-adjacent
-        _mk(4, "2026.05.04", 2, 3, 0, .3, .55, hue=200),   # D -> nearest remaining, pairs with B
+        _mk(1, "2026.05.01", 2, 3, 0, .3, .40, hue=10),    # portraits that the old composer
+        _mk(2, "2026.05.02", 2, 3, 0, .3, .45, hue=170),   # would have paired into diptychs
+        _mk(3, "2026.05.03", 2, 3, 0, .3, .50, hue=12),
+        _mk(4, "2026.05.04", 2, 3, 0, .3, .55, hue=200),
         _mk(5, "2026.05.05", 3, 2, 0, .3, .05),            # darkest landscape -> closer
         _mk(6, "2026.05.06", 3, 2, 0, .3, .90),            # newest landscape -> hero
     ]
     out = compose.compose(photos, {"reel_size": 14}, {})
     reel = out["reel"]
-    # adjacency-based pairing would give (1,2)+(3,4); nearest-hue gives these instead
-    assert {"type": "diptych", "ids": ["DSCF0001", "DSCF0003"], "mask": None} in reel
-    assert {"type": "diptych", "ids": ["DSCF0002", "DSCF0004"], "mask": None} in reel
+    assert all(s["type"] == "solo" and len(s["ids"]) == 1 for s in reel)      # one print per scene
+    assert len(reel) == len(photos)                                          # every photo gets its own scene
     assert compose.compose(photos, {"reel_size": 14}, {}) == out               # deterministic
-    print("ok test_compose_diptych_hue_pairing_nonadjacent")
+    print("ok test_compose_portraits_stay_solo")
 
 def test_compose_empty_inputs():
     from pipeline import compose

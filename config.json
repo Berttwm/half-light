@@ -2,10 +2,11 @@
   "title": "Half-Light",
   "intro_line": "the inner machinations of a photographic mind are an enigma",
   "quotes": [
-    { "text": "It is our light, not our darkness that most frightens us", "prefer": "extreme" },
-    { "text": "The world through my eyes" },
-    { "text": "Passion — The willingness to suffer for something" },
-    { "text": "W for wumbo" }
+    { "text": "It is our light, not our darkness that most frightens us",
+      "emphasis": ["light", "darkness"], "prefer": "extreme" },
+    { "text": "The world through my eyes", "emphasis": ["world", "eyes"] },
+    { "text": "Passion — The willingness to suffer for something", "emphasis": ["Passion", "suffer"] },
+    { "text": "W for wumbo", "emphasis": ["wumbo"] }
   ],
   "source_dir": "E:/Videos_Photos/X100T Photos/favorites",
   "reel_size": 14,

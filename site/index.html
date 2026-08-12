@@ -83,18 +83,18 @@
   .win { position: relative; overflow: hidden; height: min(76vh, calc(82vw * var(--ir))); aspect-ratio: calc(1 / var(--ir)); }
   .win img { position: absolute; left: -7%; top: -7%; width: 114%; height: 114%; object-fit: cover; will-change: transform; }
   .hasq .win { height: min(68vh, calc(56vw * var(--ir))); }
-  .pair { display: flex; align-items: center; gap: 2vw; }
-  .pair .win { height: min(60vh, calc(34vw * var(--ir))); }
 
   /* the quote: on the lit ground beside the print, never over it. Its words surface as the scene
      scrolls in, so a print is never on screen without its line underway. */
-  .sideq { max-width: 23ch; font-family: var(--serif); font-style: italic;
-    font-size: clamp(17px, 2.1vw, 29px); line-height: 1.6; letter-spacing: .04em; color: var(--ink); }
+  .sideq { max-width: 20ch; font-family: var(--serif); font-style: italic;
+    font-size: clamp(17px, 2.1vw, 29px); line-height: 1.6; letter-spacing: .04em; color: var(--ink);
+    text-wrap: balance; }                            /* even lines — never a single word left orphaned */
   .sideq.right { text-align: right; }
   .sideq .w { display: inline-block; opacity: 0; filter: blur(6px); transform: translateY(10px);
     transition: opacity .55s ease, filter .55s ease, transform .55s ease; }
   .sideq .w.on { opacity: 1; filter: blur(0); transform: translateY(0); }
-  .sideq .w.on:last-of-type { color: var(--safelight); }
+  /* the line's own key words carry the safelight — chosen in config, not "whatever lands last" */
+  .sideq .w.em { color: var(--safelight); }
 
   .txt { text-align: center; max-width: 94vw; }
   .txt h1 { font-size: clamp(34px, 6vw, 58px); font-weight: normal; letter-spacing: .3em; }
@@ -111,15 +111,23 @@
   #hint.gone { opacity: 0; }
   #spacer { width: 1px; }
 
+  /* the JS already stops its own motion; the room's CSS loops have to be told too */
+  @media (prefers-reduced-motion: reduce) {
+    .echowrap .echo, .aurw .aur, #dust span { animation: none !important; }
+    .env.in, .env.out { animation-duration: .01ms !important; }
+    .aurw, .aur .g, .sideq .w { transition-duration: .01ms !important; }
+    #dust { display: none; }
+  }
+
   @media (max-width: 700px) {
     nav { padding: 16px 18px; }
     .neg { padding: 10px 16px 22px; }
     .neg::before { left: 4px; } .neg::after { right: 4px; }
     .neg .edge { left: 16px; right: 16px; font-size: 7px; }
-    .win { height: min(58vh, calc(92vw * var(--ir))); }
-    .hasq .win { height: min(48vh, calc(86vw * var(--ir))); }
-    .pair { gap: 8px; }
-    .pair .win { height: min(48vh, calc(40vw * var(--ir))); }
+    /* the frame's own padding is 16px a side: size the window off the space that is actually left,
+       or a landscape print renders wider than the screen and the sprockets sit on the bezel */
+    .win { height: min(58vh, calc((100vw - 56px) * var(--ir))); }
+    .hasq .win { height: min(48vh, calc((100vw - 56px) * var(--ir))); }
     .scene .mover { flex-direction: column; gap: 20px; }
     .sideq, .sideq.right { max-width: 82vw; text-align: center; font-size: 16px; order: 2; }
     .txt h1 { font-size: clamp(24px, 7.4vw, 40px); letter-spacing: .16em; }
@@ -141,7 +149,7 @@
 <div id="counter"></div>
 <div id="hint" class="mono">SCROLL TO BEGIN THE PROJECTION</div>
 <div id="spacer"></div>
-<script src="assets/data.a7a799f5f8.js"></script>
+<script src="assets/data.442fef9fbf.js"></script>
 <script>
 (() => {
   const P = window.PHOTOS, TITLE = window.META.title;
@@ -160,10 +168,13 @@
 
   const SC = [
     { kind: 'text', html: `<h1>${TITLE.toUpperCase()}</h1><p class="line">${window.META.intro_line}</p>` },
-    ...window.SCENES.map((s, i) => ({ kind: 'photo', ids: s.ids, type: s.type, q: QUOTES[i] })),
+    // one print per scene; a scene whose photo is missing from the manifest is dropped rather than
+    // rendered as a hole (and legacy two-id scenes fall back to their first available print)
+    ...window.SCENES.map((s, i) => ({ kind: 'photo', id: (s.ids || []).find(id => P[id]), q: QUOTES[i] }))
+                    .filter(s => s.id),
     { kind: 'text', html: '<p class="line">the roll continues</p><span class="mono">NEW FRAMES ARE DEVELOPED AS THEY ARE TAKEN</span>' },
   ];
-  const N = SC.length, N_PHOTOS = window.SCENES.length;
+  const N = SC.length, N_PHOTOS = N - 2;
 
   // ---- scenes ----
   const stage = document.getElementById('stage');
@@ -178,15 +189,15 @@
     el.className = 'scene';
     el.style.zIndex = 10 + i;                         // later scenes arrive over earlier ones
     if (sc.kind === 'photo') {
-      const ps = sc.ids.map(id => P[id]).filter(Boolean);
-      const body = ps.length > 1
-        ? `<div class="pair">${ps.map(negHTML).join('')}</div>`
-        : negHTML(ps[0]);
+      const body = negHTML(P[sc.id]);
+      const em = new Set((sc.q && sc.q.emphasis || []).map(w => w.toLowerCase()));
+      const bare = w => w.toLowerCase().replace(/[^a-z0-9']/g, '');   // match "darkness" inside "darkness,"
       const qH = sc.q ? `<div class="sideq ${sc.q.side}">` +
-        sc.q.text.split(' ').map(w => `<span class="w">${w}</span>`).join(' ') + `</div>` : '';
+        sc.q.text.split(' ').map(w =>
+          `<span class="w${em.has(bare(w)) ? ' em' : ''}">${w}</span>`).join(' ') + `</div>` : '';
       el.innerHTML = `<div class="mover${sc.q ? ' hasq' : ''}">` +
         (sc.q && sc.q.side === 'left' ? qH + body : body + qH) + `</div>`;
-      sc.tintId = ps[0] ? ps[0].id : null;
+      sc.tintId = sc.id;
     } else {
       el.innerHTML = `<div class="mover"><div class="txt">${sc.html}</div></div>`;
     }
@@ -359,6 +370,10 @@
         setTimeout(() => old.remove(), 1200);
       }
       curEnv = nxt;
+      // scrubbing back and forth across a midpoint can outrun those removals; keep the host to the
+      // aurora plus the two rooms actually crossfading
+      const layers = [...envhost.children].filter(c => c !== aurHost);
+      while (layers.length > 2) layers.shift().remove();
     };
     if (sc.kind === 'photo' && sc.tintId) samplePalette(P[sc.tintId], apply); else apply(null);
   }
@@ -381,7 +396,12 @@
   const hint = document.getElementById('hint');
   function layout() { spacer.style.height = ((N - 1) * SEG + 1) * innerHeight + 'px'; }
   let tTarget = 0, tSmooth = 0, last = 0;
-  const readScroll = () => { tTarget = clamp(scrollY / (innerHeight * SEG), 0, N - 1); };
+  // a zero-height viewport (hidden iframe, some print paths) would make this NaN, and a NaN
+  // playhead poisons every downstream style and kills the animation loop for good
+  const readScroll = () => {
+    const raw = innerHeight > 0 ? scrollY / (innerHeight * SEG) : 0;
+    tTarget = Number.isFinite(raw) ? clamp(raw, 0, N - 1) : 0;
+  };
 
   let mx = 0, my = 0, smx = 0, smy = 0;
   let bootP = RM ? 1 : 0;
@@ -436,8 +456,10 @@
     });
     const a = clamp(Math.round(t), 0, N - 1);
     setEnv(a, tTarget >= t ? 1 : -1);
+    // The room drifts with the playhead on a SINE. A sawtooth (t - round(t)) reads the same at rest
+    // but flips sign the instant the playhead crosses a midpoint — a visible lurch every scene.
     envhost.style.transform = `translate3d(${(smx * -0.024 * innerWidth).toFixed(1)}px, ` +
-      `${((t - a) * -0.05 * innerHeight + smy * -0.018 * innerHeight).toFixed(1)}px, 0)`;
+      `${(Math.sin(t * Math.PI) * -0.035 * innerHeight + smy * -0.018 * innerHeight).toFixed(1)}px, 0)`;
     counter.textContent = (a >= 1 && a <= N_PHOTOS)
       ? String(a).padStart(2, '0') + ' / ' + String(N_PHOTOS).padStart(2, '0') : '';
     prog.style.width = (t / (N - 1) * 100) + '%';
