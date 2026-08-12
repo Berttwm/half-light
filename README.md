@@ -66,6 +66,31 @@ To rename the site and gallery:
 
 All other site content (layout, grid, styling) derives at build time and requires no manual edits.
 
+## Quotes on the Projection Room
+
+The lines that appear beside the photographs live in `config.json`:
+
+```json
+"quotes": [
+  { "text": "It is our light, not our darkness that most frightens us",
+    "emphasis": ["light", "darkness"], "prefer": "extreme" },
+  { "text": "The world through my eyes", "emphasis": ["world", "eyes"] }
+]
+```
+
+- **`text`** — the line. Keep it short; it sits in the margin beside the print.
+- **`emphasis`** — the words that get the amber safelight. Match is case- and punctuation-insensitive,
+  so `"darkness"` also lights `darkness,`.
+- **`prefer": "extreme"`** — optional, at most useful on one quote: it claims the darkest or
+  brightest print in the reel.
+
+Quotes are **never tied to a photo id**, because the reel rotates to the newest photos on every sync.
+They are assigned by rule at build time (`compose.assign_quotes`): the `extreme` one first, the rest
+spaced evenly across the reel, alternating margins, solo scenes only, never the opening frame. Add or
+remove lines freely — 4 to 6 across a 14-photo reel reads well; more than there are frames are dropped.
+
+The full front-page design is documented in `docs/superpowers/specs/2026-08-12-projection-room-design.md`.
+
 ## The Grade (frozen 2026-08-09)
 
 Every photo is graded individually — there is no single fixed filter. The pipeline measures each photo (median luminance, warm-hue fraction, colorfulness) and computes its own parameters per photo:
