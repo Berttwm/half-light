@@ -81,7 +81,10 @@
   .neg .edge { position: absolute; bottom: 10px; left: 28px; right: 28px; display: flex; justify-content: space-between;
     gap: 10px; font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; color: #93763f; white-space: nowrap; }
   .win { position: relative; overflow: hidden; height: min(76vh, calc(82vw * var(--ir))); aspect-ratio: calc(1 / var(--ir)); }
-  .win img { position: absolute; left: -7%; top: -7%; width: 114%; height: 114%; object-fit: cover; will-change: transform; }
+  /* The print is oversized only enough to give the inner drift somewhere to go. At 114% (the old
+     site's figure) a photograph lost 23% of its area to the crop, which reads as "zoomed in" on any
+     frame whose composition runs to its edges. 104% costs 7%, and the drift is scaled to match. */
+  .win img { position: absolute; left: -2%; top: -2%; width: 104%; height: 104%; object-fit: cover; will-change: transform; }
   .hasq .win { height: min(68vh, calc(56vw * var(--ir))); }
 
   /* the quote: on the lit ground beside the print, never over it. Its words surface as the scene
@@ -427,8 +430,11 @@
       const shift = (RM || COARSE) ? '' : ` translate3d(${(smx * 22).toFixed(1)}px, ${(smy * 13).toFixed(1)}px, 0)`;
       sc.mover.style.transform =
         `translateY(${(d * -30).toFixed(2)}vh) scale(${(1 - Math.min(.07, ad * .06)).toFixed(3)})` + shift + tilt;
+      // drift in PERCENT of the print, not pixels: the headroom above is 2% of the print, and on a
+      // phone 2% is only a few pixels — a pixel-based drift would slide the image off its own window
       if (!RM) sc.imgs.forEach(im => {
-        im.style.transform = `translate3d(${(smx * -16).toFixed(1)}px, ${(d * -26 + smy * -9).toFixed(1)}px, 0)`;
+        im.style.transform = `translate3d(${(smx * -1.2).toFixed(2)}%, ` +
+          `${(clamp(d, -1, 1) * -1 + smy * -0.5).toFixed(2)}%, 0)`;
       });
       if (sc.ws.length) {                             // the line surfaces with the print, word by word
         const p = ease(clamp((d + 0.85) / 0.6, 0, 1));
