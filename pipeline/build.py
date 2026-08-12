@@ -367,9 +367,10 @@ def run(cfg, root=ROOT, force=False):
         return 1
     photos = [manifest[k] for k in sorted(manifest) if k in {e["stem"] for e in entries}]
     composed = compose.compose(photos, cfg, overrides)
-    data = ("window.PHOTOS=%s;window.SCENES=%s;window.SHEET=%s;window.META=%s;" % (
+    quotes = compose.assign_quotes(composed["reel"], photos, cfg.get("quotes", []))
+    data = ("window.PHOTOS=%s;window.SCENES=%s;window.SHEET=%s;window.QUOTES=%s;window.META=%s;" % (
         json.dumps({p["id"]: p for p in photos}), json.dumps(composed["reel"]),
-        json.dumps(composed["sheet"]),
+        json.dumps(composed["sheet"]), json.dumps(quotes),
         json.dumps({"title": cfg["title"], "intro_line": cfg["intro_line"]})))
     dhash = hashlib.sha1(data.encode()).hexdigest()[:10]
     assets = os.path.join(root, "site", "assets")
