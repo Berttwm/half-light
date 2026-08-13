@@ -107,12 +107,91 @@
   .txt .ch { display: inline-block; will-change: transform; }
   .txt .wd { display: inline-block; white-space: nowrap; }   /* letters are separate bodies: keep words whole */
 
-  #prog { position: fixed; left: 0; bottom: 0; height: 2px; width: 0; background: var(--safelight); opacity: .75; z-index: 60; }
+  /* Full width, scaled. Animating `width` would re-run layout on every frame of every scroll —
+     it is a layout property, and this bar is updated from the render loop. */
+  #prog { position: fixed; left: 0; bottom: 0; height: 2px; width: 100%; background: var(--safelight);
+    opacity: .75; z-index: 60; transform: scaleX(0); transform-origin: 0 50%; }
   #counter { position: fixed; right: 30px; bottom: 22px; z-index: 60; font-family: var(--mono); font-size: 10px;
     letter-spacing: .25em; color: var(--ink-dim); }
   #hint { position: fixed; bottom: 22px; left: 0; right: 0; text-align: center; z-index: 60; transition: opacity .8s; }
   #hint.gone { opacity: 0; }
   #spacer { width: 1px; }
+
+  /* PHONE: the room holds still. Every layer keeps the look it was approved with — the echo, the
+     three sampled blobs, their per-scene crossfade — but nothing LOOPS, so between scenes the
+     compositor has nothing to redraw. A rotating masked full-screen echo plus three drifting
+     633px blobs is continuous GPU work on a handset for motion nobody is looking at. */
+  /* The echo is 170% of the room and scaled another 1.7x — 2.9x more surface than the screen —
+     purely so the corners stay covered while it ROTATES. It no longer rotates here, so it does
+     not need the overhang, and the source is a 64px latent: nothing about the blur changes. */
+  body.coarse .echowrap .echo { animation: none; transform: none; inset: 0; }
+  body.coarse .aurw .aur { animation: none; }
+  body.coarse .aurw, body.coarse .aur, body.coarse .win img, body.coarse #envhost { will-change: auto; }
+  /* Every letter of the title carried will-change:transform, so the intro alone held ~51 permanent
+     composited layers — still resident long after it has scrolled away. The letters only move
+     during the intro, and the engine promotes them for that on its own. */
+  body.coarse .txt .ch { will-change: auto; }
+  /* The transition fades two scenes across each other. A fractional opacity on a subtree that is
+     NOT on its own layer has to be repainted every frame — print, mount, sprockets, shadow, all of
+     it, twice over, for the whole length of the transition. Declaring opacity up front lets the
+     fade happen on the compositor instead. Opacity-only promotion, not transform: the movers stay
+     unpromoted, because promoting those is what cost us 65 layers. */
+  body.coarse .scene { will-change: opacity; }
+  /* z-index 50 over the whole page forces everything beneath it into its own compositing pass.
+     At .045 opacity it is costing far more than it shows on a handset. */
+  body.coarse::after { display: none; }
+  /* a 70px-blur drop shadow is re-blurred every time the frame's surface is rebuilt */
+  body.coarse .neg { box-shadow: 0 10px 26px rgba(0,0,0,.7), inset 0 0 20px rgba(0,0,0,.5); }
+  /* perspective is the distance from the eye to the screen. At 1100px against a 440px-wide phone
+     the eye is effectively miles away, so a rotation barely foreshortens and reads as sliding
+     rather than turning. Bringing it in is what makes the frame behave like a window. */
+  body.coarse .scene { perspective: 620px; }
+
+  /* REVERTED: the scene ride was briefly handed to a scroll-driven CSS animation, so it would
+     survive iOS parking the main thread mid-scroll. The mechanism is real, but in practice it
+     glitched the print and was not worth the machinery. Back to the render loop. */
+  /* REVERTED: the tilt was briefly driven from :root custom properties with a transition, to keep
+     it alive across a main-thread stall. It made everything far worse — 15fps and multi-second
+     stalls. Setting a custom property on :root invalidates style for every element that could
+     inherit it, so a sensor firing at 60Hz became a whole-document style recalc sixty times a
+     second. The render loop writing three inline transforms is dramatically cheaper. */
+  /* SHADOWBOX: the print reads as set back inside the mount, because the mount's near edge shades
+     it. Tried this as true 3D first (preserve-3d + a negative Z on the window) and it rendered
+     black: in a 3D context the frame paints its own opaque background in its own plane, so a child
+     pushed behind that plane is hidden by its own parent. This does it with a shading pool that
+     slides instead — same read, and it moves on the compositor rather than repainting the frame. */
+  /* SPATIAL removed. A depth map, a cut-out near layer and per-pixel displacement were all built
+     and all discarded: two-layer parallax reads as a cardboard cutout, and the continuous version
+     costs a canvas over the print. The tilt alone carries it. */
+
+  body.coarse #dust { display: none; }
+
+  /* THE PHONE ROOM — one picture instead of five stacked surfaces.
+     On desktop the room is the dark ground + a blurred echo of the photo + three big colour blobs,
+     each its own full-screen layer. Every scene change repaints all five: the blobs alone are
+     ~5 million pixels each on a phone, so ~15M pixels of repaint per scene. That is the periodic
+     400-700ms freeze in the recordings. Here the identical recipe is drawn as one stack of CSS
+     backgrounds on ONE screen-sized element, and two of those crossfade. Same look, one repaint. */
+  #room { position: fixed; inset: 0; display: none; }
+  body.coarse #room { display: block; }
+  body.coarse #base, body.coarse #envhost, body.coarse #vign { display: none; }
+  #room div { position: absolute; inset: 0; opacity: 0; transition: opacity 1.1s ease;
+    background-repeat: no-repeat; background-position: center; }
+  /* Snapping on a touch device is the platform's job. The JS tween re-entered itself (its own
+     scrollTo fired scroll events that re-armed its timer), fired mid-gesture if a slow drag
+     paused for 240ms, and snapped to NEAREST with no hysteresis — so a small deliberate drag
+     back was dragged forward again. That is the "catches on something and doesn't know which
+     way to go". Native snapping is momentum- and direction-aware and never fights the finger. */
+  html.snap { scroll-snap-type: y mandatory; }
+  #spacer i { display: block; scroll-snap-align: start; }
+
+  #depthgate { position: fixed; left: 50%; bottom: 54px; transform: translateX(-50%); z-index: 62;
+    font-family: var(--mono); font-size: 10px; letter-spacing: .24em; color: var(--safelight);
+    background: rgba(18,18,18,.82); border: 1px solid #56452c; border-radius: 3px;
+    padding: 9px 15px; -webkit-appearance: none; appearance: none; cursor: pointer; }
+  #depthdebug { position: fixed; left: 8px; top: 52px; z-index: 62; font-family: var(--mono);
+    font-size: 9px; color: #7fd0a0; background: rgba(0,0,0,.7); padding: 4px 6px; pointer-events: none; }
+  body.coarse .sideq .w { filter: none; transition: opacity .55s ease, transform .55s ease; }
 
   /* the JS already stops its own motion; the room's CSS loops have to be told too */
   @media (prefers-reduced-motion: reduce) {
@@ -140,6 +219,7 @@
 </head>
 <body>
 <div id="base"></div>
+<div id="room"></div>
 <div id="envhost"></div>
 <div id="dust"></div>
 <div id="vign"></div>
@@ -158,7 +238,46 @@
   const P = window.PHOTOS, TITLE = window.META.title;
   const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const COARSE = matchMedia('(pointer: coarse)').matches;
+  if (COARSE) document.body.classList.add('coarse');
   document.getElementById('navTitle').textContent = TITLE;
+
+  // Depth. On a pointer device the cursor leans the print; on a handset the HANDSET does, read off
+  // the tilt sensor. The frame stays a window and the print shifts inside it — the spatial-photo
+  // effect. The inner drift still spends only the 2% of headroom the print has, because the crop
+  // is not negotiable; the rest of the depth comes from rotating the frame, which costs no photo.
+  // Equal in both axes. They were not: vertical had 11deg/18px/1% against horizontal's
+  // 15deg/30px/2%, so the effect really did work better sideways than up and down.
+  const TILT_Y = COARSE ? 9 : 4.5, TILT_X = COARSE ? 9 : 3.2;
+  const SHIFT_X = COARSE ? 18 : 22, SHIFT_Y = COARSE ? 18 : 13;
+  const DRIFT_X = COARSE ? -2 : -1.2, DRIFT_Y = COARSE ? -2 : -0.5;   // -2 spends all 2% of headroom
+  // Degrees of wrist for full deflection. Separate per axis on purpose: a wrist rolls sideways
+  // freely but pitches forward/back over a much smaller range, so beta needs a shorter throw to
+  // feel equally alive.
+  // Reverted to a direct response. The eased curve made small movements barely register, which
+  // read as dead rather than smooth, and the longer throw compounded it. Only the intensity
+  // stays dialled back (9deg / 18px, from 15 / 30) — that part was right.
+  const GAIN_X = 20, GAIN_Y = 12;
+
+  // The print hangs in the room and the handset moves around it, so it counter-turns to keep
+  // facing you. One sign, flipping turn, slide and drift together. The screen-locked and
+  // shadowbox variants are gone with the rest of the spatial work.
+  // COARSE only. On a pointer device the print leans TOWARDS the cursor, which is the desktop
+  // behaviour that was signed off; anchoring is a handset idea and inverting it here would have
+  // quietly flipped the desktop tilt as a side effect of a mobile change.
+  const ANCHOR = COARSE ? -1 : 1;
+
+  // How the scroll settles, switchable on the handset. This is the knob behind the tilt going
+  // rigid mid-scroll: while a snap is in progress the browser owns the scroll, and how hard it
+  // owns it differs per mode.
+  //   LOCK - snap is mandatory. Every release lands dead on a print; the browser takes the
+  //          strongest hold, and cannot leave the scroll between two scenes at all.
+  //   NEAR - snap only engages if you already stopped near a print. Lets you rest between two.
+  //   FREE - no snap. Pure momentum, the playhead rests wherever you leave it.
+  let SNAP = (location.search.match(/snap=(\w+)/) || [])[1] || 'lock';
+  const SNAPCSS = { lock: 'y mandatory', near: 'y proximity', free: 'none' };
+  function applySnap() { document.documentElement.style.scrollSnapType = SNAPCSS[SNAP] || 'y mandatory'; }
+  // ~70 simultaneous per-letter blur filters is the most expensive frame of the intro on a phone
+  const chBlur = COARSE ? () => '' : px => `blur(${px.toFixed(1)}px)`;
 
   // Scroll sets a playhead; everything reads from it. SEG is viewport-heights of scroll per scene —
   // short, because no scroll distance is spent on an empty screen. Idle snap settles on a print.
@@ -184,7 +303,7 @@
   const negHTML = p => {
     const n = p.frame.replace('No. ', '');
     return `<div class="neg"><div class="win" style="--ir:${(p.h / p.w).toFixed(4)}">
-      <img data-src="${p.full}" alt="" style="background:url(${p.latent}) center/cover">
+      <img data-src="${COARSE ? p.thumb : p.full}" alt="" decoding="async" style="background:url(${p.latent}) center/cover">
       </div><div class="edge"><span>${TITLE.toUpperCase()} 400</span><span>${n}A&ensp;&middot;&ensp;${p.date}</span></div></div>`;
   };
   const els = SC.map((sc, i) => {
@@ -351,11 +470,45 @@
       `opacity:${op.toFixed(2)};filter:saturate(${sat}) brightness(${bri})"></div></div>`;
     return env;
   }
+  // ---- the phone room: the same recipe, flattened to one paintable picture ----
+  const roomEl = document.getElementById('room');
+  const roomLayers = COARSE ? [0, 1].map(() => roomEl.appendChild(document.createElement('div'))) : null;
+  let roomFlip = false;
+  // where the three blobs sit, as a share of the screen — the desktop wrapper positions, resolved
+  const HOME = [[6, 28], [94, 42], [38, 104]];
+  function setRoom(sc) {
+    // Colours come from p.tint, the dominant the grading pipeline already measured, instead of
+    // re-deriving it here by drawing the latent to a canvas and reading it back. That readback is
+    // a main-thread stall of its own, once per scene, for a number we were already given.
+    const c = roomColors(sc, null);
+    const geo = auroraGeometry(sc);
+    const blobs = c.cs.slice(0, 3).map((col, i) =>
+      `radial-gradient(circle 42vmax at ${(HOME[i][0] + geo[i][0] * .5).toFixed(1)}% ${(HOME[i][1] + geo[i][1] * .5).toFixed(1)}%,`
+      + ` hsla(${col[0].toFixed(0)},${col[1].toFixed(0)}%,${col[2].toFixed(0)}%,${col[3].toFixed(2)}) 0%, transparent 64%)`);
+    const p = sc.kind === 'photo' && sc.tintId ? P[sc.tintId] : null;
+    const ext = p ? Math.min(1, Math.abs(p.lum - .34) / .38) : .5;
+    const veil = clamp(1 - (.22 + (1 - ext) * .24), .55, .85);   // ground held over the echo, as the filter did
+    const img = [
+      'radial-gradient(ellipse 120% 105% at 50% 46%, transparent 66%, rgba(10,10,10,.46) 100%)',  // vignette
+      ...blobs,
+      `linear-gradient(rgba(19,19,19,${veil.toFixed(2)}),rgba(19,19,19,${veil.toFixed(2)}))`,
+    ];
+    const size = img.map(() => 'auto');
+    if (p) { img.push(`url(${p.latent})`); size.push('cover'); }
+    roomFlip = !roomFlip;
+    const show = roomLayers[roomFlip ? 1 : 0], hide = roomLayers[roomFlip ? 0 : 1];
+    show.style.backgroundImage = img.join(',');
+    show.style.backgroundSize = size.join(',');
+    show.style.opacity = 1;
+    hide.style.opacity = 0;
+  }
+
   let curEnv = null, envIdx = -1;
   function setEnv(i, dir) {
     if (i === envIdx) return;
     envIdx = i;
     const sc = SC[i];
+    if (COARSE) { setRoom(sc); return; }
     const apply = doms => {
       if (envIdx !== i) return;                       // a newer scene took over while sampling
       setAurora(roomColors(sc, doms), sc);
@@ -382,7 +535,7 @@
   }
 
   const dust = document.getElementById('dust');
-  for (let k = 0, n = COARSE ? 16 : 28; k < n; k++) {
+  for (let k = 0, n = COARSE ? 0 : 28; k < n; k++) {   // the phone room holds still — no drifting motes
     const m = document.createElement('span');
     const near = k % 7 === 0;
     const size = near ? 3.2 + Math.random() * 1.8 : 1.2 + Math.random() * 2;
@@ -397,44 +550,142 @@
   const counter = document.getElementById('counter');
   const prog = document.getElementById('prog');
   const hint = document.getElementById('hint');
-  function layout() { spacer.style.height = ((N - 1) * SEG + 1) * innerHeight + 'px'; }
+  if (COARSE) { document.documentElement.classList.add('snap'); applySnap(); }
+  // ONE pitch for both the snap points and the playhead. They were on different ones: snap points
+  // are fixed pixels, but readScroll divided by a LIVE innerHeight — so the moment Safari's
+  // toolbar collapsed, innerHeight shrank ~10% and snap point n started landing on playhead 0.94n.
+  // That is the "snaps in between frames", and why a scene could settle sitting at the bottom.
+  let SEGPX = 0;
+  function layout() {
+    SEGPX = Math.round(innerHeight * SEG);
+    if (!COARSE) { spacer.style.height = ((N - 1) * SEG + 1) * innerHeight + 'px'; return; }
+    // one snap point per scene, at exactly the playhead's own segment pitch, so the position the
+    // platform settles on and the position the playhead calls "scene N" are the same place
+    if (spacer.children.length !== N) spacer.innerHTML = '<i></i>'.repeat(N);
+    spacer.style.height = '';
+    [...spacer.children].forEach((c, i) => { c.style.height = (i === N - 1 ? innerHeight : SEGPX) + 'px'; });
+  }
   let tTarget = 0, tSmooth = 0, last = 0;
   // a zero-height viewport (hidden iframe, some print paths) would make this NaN, and a NaN
   // playhead poisons every downstream style and kills the animation loop for good
   const readScroll = () => {
-    const raw = innerHeight > 0 ? scrollY / (innerHeight * SEG) : 0;
+    const raw = SEGPX > 0 ? scrollY / SEGPX : 0;
     tTarget = Number.isFinite(raw) ? clamp(raw, 0, N - 1) : 0;
   };
 
   let mx = 0, my = 0, smx = 0, smy = 0;
   let bootP = RM ? 1 : 0;
   const bootStart = performance.now();
-  addEventListener('mousemove', e => { mx = e.clientX / innerWidth - .5; my = e.clientY / innerHeight - .5; });
+  if (!COARSE) {
+    addEventListener('mousemove', e => { mx = e.clientX / innerWidth - .5; my = e.clientY / innerHeight - .5; });
+  } else if (!RM) {
+    // The handset is the cursor. Baselined on the first reading, so whatever angle it is already
+    // being held at is neutral; gamma/beta then drive the same mx/my the mouse drove.
+    let base = null, readings = 0;
+    addEventListener('deviceorientation', e => {
+      if (e.gamma == null || e.beta == null) return;   // fires with nulls when the sensor is denied
+      readings++;
+      if (!base) { base = { b: e.beta, g: e.gamma }; grant(); }
+      // full deflection is 1, not 0.5. The mouse path produces +/-0.5 because it is a fraction of
+      // the window, and reusing that range here silently halved every tilt constant: the code said
+      // 14 degrees and the screen got 7.
+      mx = clamp((e.gamma - base.g) / GAIN_X, -1, 1);
+      my = clamp((e.beta - base.b) / GAIN_Y, -1, 1);
+    }, { passive: true });
+
+    // iOS gates the sensor behind a real user gesture on a secure origin. The previous version
+    // hung that off a one-shot window touchend and swallowed the rejection, so a refusal (a scroll
+    // does not always count as activation) left it silently dead with no way to retry. An explicit
+    // control that stays until a reading actually arrives cannot fail invisibly.
+    const gate = document.createElement('button');
+    gate.id = 'depthgate';
+    const need = typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission;
+    function grant() { gate.remove(); hint.textContent = 'TILT TO LOOK AROUND THE PRINT'; }
+    function say(msg) { gate.textContent = msg; }
+    if (need) {
+      say('TAP FOR DEPTH');
+      gate.addEventListener('click', async () => {
+        say('ASKING…');
+        try {
+          const r = await DeviceOrientationEvent.requestPermission();
+          if (r !== 'granted') return say('MOTION BLOCKED — TAP TO RETRY');
+          say('GRANTED — TILT THE PHONE');
+          // granted but silent usually means an insecure origin; say so rather than sitting dead
+          setTimeout(() => { if (!readings) say(isSecureContext ? 'NO SENSOR DATA' : 'NEEDS HTTPS'); }, 2500);
+        } catch (err) { say('TAP AGAIN'); }        // not a user gesture: retry is the whole point
+      });
+      document.body.appendChild(gate);
+    } else {
+      // Android, or an iOS that no longer gates it: the listener above is already live. If nothing
+      // arrives, the origin is almost certainly not secure — surface that instead of failing mute.
+      setTimeout(() => {
+        if (readings) return;
+        say(isSecureContext ? 'NO MOTION SENSOR' : 'DEPTH NEEDS HTTPS');
+        document.body.appendChild(gate);
+      }, 3000);
+    }
+    if (location.search.includes('debug')) {
+      const d = document.createElement('div');
+      d.id = 'depthdebug';
+      document.body.appendChild(d);
+      setInterval(() => {
+        d.textContent = `secure=${isSecureContext} gate=${!!need} reads=${readings} `
+          + `mx=${mx.toFixed(2)} my=${my.toFixed(2)} smx=${smx.toFixed(2)}`;
+      }, 250);
+    }
+  }
 
   function paint(t) {
     if (t > 0.12) hint.classList.add('gone'); else hint.classList.remove('gone');
     const lean = clamp(tTarget - t, -1, 1);
     els.forEach((el, i) => {
       const sc = SC[i], d = t - i, ad = Math.abs(d);
-      if (ad > 1.15) { el.style.visibility = 'hidden'; el.style.opacity = 0; return; }
-      el.style.visibility = 'visible';
-      sc.imgs.forEach(im => { if (!im.src) im.src = im.dataset.src; });
-      const nb = SC[i + 1];
-      if (nb && ad < 1) nb.imgs.forEach(im => { if (!im.src) im.src = im.dataset.src; });
+      // Park it once, then stop touching its style.
+      // NOTE: this used to also flip will-change per scene. That made it WORSE (30fps, a 1067ms
+      // freeze) — toggling will-change promotes and demotes a composited layer, so every scene
+      // boundary became an allocate-and-discard of a print-sized surface, mid-scroll. On coarse
+      // the movers are simply never promoted; the CSS handles it once, statically.
+      if (ad > 1.15) {
+        if (el._off !== 1) { el.style.visibility = 'hidden'; el.style.opacity = 0; el._off = 1; }
+        // Hand the memory back. Every print that has ever been on screen otherwise stays decoded
+        // for the rest of the session — fourteen of them is ~37MB of bitmap, and it is why the
+        // recordings got worse the further the roll was scrolled. The latent underneath is already
+        // the img's background, so a released frame still shows its own colour, never a hole.
+        if (COARSE && ad > 3) sc.imgs.forEach(im => { if (im.src) { im.removeAttribute('src'); } });
+        return;
+      }
+      if (el._off !== 0) { el._off = 0; el.style.visibility = 'visible'; }
+      // Load AND decode ahead. Assigning src alone leaves the decode to happen on the frame the
+      // print first shows, which is exactly the frame that must not be slow. decode() moves that
+      // work off the critical frame and, on a phone, off the main thread.
+      sc.imgs.forEach(im => { if (!im.src) { im.src = im.dataset.src; im.decode?.().catch(() => {}); } });
+      for (let k = 1; k <= 2; k++) {                  // two scenes of runway, not one
+        const nb = SC[i + k];
+        if (nb && ad < 1) nb.imgs.forEach(im => { if (!im.src) { im.src = im.dataset.src; im.decode?.().catch(() => {}); } });
+      }
       // card over card: the incoming print is solid before it crosses the outgoing one
       const oIn = ease(clamp((d + 1.0) / 0.5, 0, 1));
       const oOut = 1 - ease(clamp((d - 0.18) / 0.5, 0, 1));
       el.style.opacity = (oIn * oOut).toFixed(3);
-      const tilt = (RM || COARSE) ? ` rotateX(${(-lean * 2.6).toFixed(2)}deg)`
-        : ` rotateY(${(smx * 4.5).toFixed(2)}deg) rotateX(${(-smy * 3.2 - lean * 2.6).toFixed(2)}deg)`;
-      const shift = (RM || COARSE) ? '' : ` translate3d(${(smx * 22).toFixed(1)}px, ${(smy * 13).toFixed(1)}px, 0)`;
+      const tilt = RM ? ` rotateX(${(-lean * 2.6).toFixed(2)}deg)`
+        : ` rotateY(${(ANCHOR * smx * TILT_Y).toFixed(2)}deg) rotateX(${(-ANCHOR * smy * TILT_X - lean * 2.6).toFixed(2)}deg)`;
+      const shift = RM ? '' : ` translate3d(${(ANCHOR * smx * SHIFT_X).toFixed(1)}px, ${(ANCHOR * smy * SHIFT_Y).toFixed(1)}px, 0)`;
       sc.mover.style.transform =
         `translateY(${(d * -30).toFixed(2)}vh) scale(${(1 - Math.min(.07, ad * .06)).toFixed(3)})` + shift + tilt;
       // drift in PERCENT of the print, not pixels: the headroom above is 2% of the print, and on a
       // phone 2% is only a few pixels — a pixel-based drift would slide the image off its own window
       if (!RM) sc.imgs.forEach(im => {
-        im.style.transform = `translate3d(${(smx * -1.2).toFixed(2)}%, ` +
-          `${(clamp(d, -1, 1) * -1 + smy * -0.5).toFixed(2)}%, 0)`;
+        // the scroll-driven part of the vertical drift is halved on a phone so the TILT gets a
+        // real share of the 2% of headroom the print has, instead of the leftovers
+        // The print must keep moving while the card does, or the transition reads as a flat slab
+        // sliding. Two cues: it drifts inside its window, and it eases out of a slight enlargement.
+        // The drift is clamped to the 2% of headroom the print actually has so the two sources
+        // (scroll and tilt) can share it without ever pulling an edge into view. The scale carries
+        // the rest — growing costs no headroom at all, which is why it can be generous.
+        const dy = clamp(clamp(d, -1, 1) * (COARSE ? -1.3 : -1) + ANCHOR * smy * DRIFT_Y, -2, 2);
+        const dx = clamp(ANCHOR * smx * DRIFT_X, -2, 2);
+        im.style.transform = `translate3d(${dx.toFixed(2)}%, ${dy.toFixed(2)}%, 0)`
+          + (COARSE ? ` scale(${(1 + ad * 0.045).toFixed(3)})` : '');
       });
       if (sc.ws.length) {                             // the line surfaces with the print, word by word
         const p = ease(clamp((d + 0.85) / 0.6, 0, 1));
@@ -455,7 +706,7 @@
             const pk = ease(clamp(bootP * 1.3 - (k / NC) * .3, 0, 1));   // letter is settled at boot end
             c.style.transform = pk >= 1 ? '' : `translateY(${(14 * (1 - pk)).toFixed(1)}px)`;
             c.style.opacity = pk >= 1 ? '' : pk.toFixed(3);
-            c.style.filter = pk >= 1 ? '' : `blur(${(6 * (1 - pk)).toFixed(1)}px)`;
+            c.style.filter = pk >= 1 ? '' : chBlur(6 * (1 - pk));
           }
         });
       }
@@ -464,17 +715,24 @@
     setEnv(a, tTarget >= t ? 1 : -1);
     // The room drifts with the playhead on a SINE. A sawtooth (t - round(t)) reads the same at rest
     // but flips sign the instant the playhead crosses a midpoint — a visible lurch every scene.
-    envhost.style.transform = `translate3d(${(smx * -0.024 * innerWidth).toFixed(1)}px, ` +
+    // On a phone the room does not follow the playhead or the tilt: it changes when the SCENE
+    // changes and holds still otherwise. Skipping the write also stops re-compositing the whole
+    // room layer tree — echo, mask, three blobs — on every single frame.
+    if (!COARSE) envhost.style.transform = `translate3d(${(smx * -0.024 * innerWidth).toFixed(1)}px, ` +
       `${(Math.sin(t * Math.PI) * -0.035 * innerHeight + smy * -0.018 * innerHeight).toFixed(1)}px, 0)`;
-    counter.textContent = (a >= 1 && a <= N_PHOTOS)
+    // These two lines were costing a full page layout on EVERY frame: `width` is a layout
+    // property, and replacing textContent rebuilds a text node whether or not the text differs.
+    // Traced at 223 layouts for a single scene change — the bulk of the freeze.
+    const cText = (a >= 1 && a <= N_PHOTOS)
       ? String(a).padStart(2, '0') + ' / ' + String(N_PHOTOS).padStart(2, '0') : '';
-    prog.style.width = (t / (N - 1) * 100) + '%';
+    if (cText !== counter._t) { counter.textContent = cText; counter._t = cText; }
+    prog.style.transform = `scaleX(${(t / (N - 1)).toFixed(4)})`;
   }
 
   let snapT = null, quietT = null;
   function snapNow() {                                // every rest lands on a print; the ride there is yours
     if (RM) return;
-    const seg = innerHeight * SEG;
+    const seg = SEGPX;
     const dest = clamp(Math.round(scrollY / seg), 0, N - 1) * seg;
     if (Math.abs(dest - scrollY) < 2) return;
     const from = scrollY, delta = dest - from, t0 = performance.now();
@@ -485,19 +743,34 @@
       if (p < 1) snapT = requestAnimationFrame(tw);
     })(t0);
   }
-  addEventListener('scroll', () => { readScroll(); clearTimeout(quietT); quietT = setTimeout(snapNow, 240); }, { passive: true });
+  addEventListener('scroll', () => {
+    readScroll();
+    if (COARSE) return;                             // CSS scroll-snap owns the settle on touch
+    clearTimeout(quietT); quietT = setTimeout(snapNow, 240);
+  }, { passive: true });
   addEventListener('wheel', () => cancelAnimationFrame(snapT), { passive: true });
   addEventListener('touchstart', () => cancelAnimationFrame(snapT), { passive: true });
-  addEventListener('resize', () => { layout(); readScroll(); });
+  // The mobile URL bar fires resize mid-scroll. Re-laying out a spacer many viewports tall and
+  // re-reading scrollY under the user's finger is a visible lurch, and it fires on every flick.
+  let lastW = innerWidth, lastH = innerHeight;
+  addEventListener('resize', () => {
+    if (COARSE && innerWidth === lastW && Math.abs(innerHeight - lastH) < 160) return;
+    lastW = innerWidth; lastH = innerHeight;
+    layout(); readScroll();
+  });
 
-  window.__render = t => { if (typeof t === 'number') { scrollTo(0, t * innerHeight * SEG); tTarget = tSmooth = t; } paint(tSmooth); };
+  window.__render = t => { if (typeof t === 'number') { scrollTo(0, t * SEGPX); tTarget = tSmooth = t; } paint(tSmooth); };
   (function tick(now) {
     const dt = Math.min(3, (now - last) / 16.7 || 1); last = now;
     if (!RM) bootP = ease(Math.min(1, (now - bootStart) / 1400));
     if (RM) { tSmooth = tTarget; smx = mx; smy = my; }
     else {
       tSmooth += (tTarget - tSmooth) * (1 - Math.pow(1 - LERP, dt));
-      smx += (mx - smx) * .07; smy += (my - smy) * .07;
+      // Frame-rate compensated so a 120Hz panel and a 60Hz one settle at the same rate in real
+      // time. The constant is per 60Hz frame: .12 was the draggy one — on a 120Hz phone that
+      // works out to about .06 a frame, half the responsiveness of the .18 that felt right.
+      const k = 1 - Math.pow(1 - (COARSE ? .30 : .07), dt);
+      smx += (mx - smx) * k; smy += (my - smy) * k;
     }
     paint(tSmooth);
     requestAnimationFrame(tick);
